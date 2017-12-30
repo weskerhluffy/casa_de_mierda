@@ -19,6 +19,8 @@ import geojson
 from shapely.geometry.linestring import LineString
 import numpy as np
 from shapely.ops import linemerge
+from collections import defaultdict
+from functools import total_ordering
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -28,6 +30,7 @@ immutable_types = set((int, str))
 
 
 # XXX: http://code.activestate.com/recipes/576527-freeze-make-any-object-immutable/
+@total_ordering
 class Frozen(object):
 
     def __init__(self, value):
@@ -47,12 +50,26 @@ class Frozen(object):
         return self._value.__str__()
     
     def __hash__(self):
-        putos=None
-        mierda=self._value
+        putos = None
+        mierda = self._value
 # XXX: https://stackoverflow.com/questions/20474549/extract-points-coordinates-from-python-shapely-polygon
-        putos=mapping(mierda)["coordinates"]
-#        logger_cagada.debug("de {} el hash es {}".format(mierda,putos.__hash__()))
+        putos = mapping(mierda)["coordinates"]
+#        logger_cagada.debug("de {} el hash es {}".format(mierda, putos.__hash__()))
         return putos.__hash__()
+
+    def __lt__(self, orto):
+        mierda = self._value
+        putos = mapping(mierda)["coordinates"]
+        ass = orto._value
+        fuck = mapping(ass)["coordinates"]
+        return putos < fuck
+    
+    def __eq__(self, orto):
+        mierda = self._value
+        putos = mapping(mierda)["coordinates"]
+        ass = orto._value
+        fuck = mapping(ass)["coordinates"]
+        return putos == fuck
 
     
 def freeze(value):
@@ -75,10 +92,15 @@ def house_of_pain_genera_lineas_de_celda(celda):
     return lineas
 
 
+def house_of_pain_descongela_lista(cacas):
+    return list(map(lambda x:x._value, cacas))
+
+
 # XXX: https://gis.stackexchange.com/questions/223447/weld-individual-line-segments-into-one-linestring-using-shapely
 def house_of_pain_crea_poligono_de_lineas(lineas):
-    multicaca = MultiLineString(lineas)
+    multicaca = MultiLineString(house_of_pain_descongela_lista(lineas))
     contorno = linemerge(multicaca)
+    logger_cagada.debug("el contorno es {}".format(contorno))
     poligono = Polygon(contorno)
     assert isinstance(poligono, Polygon)
     return poligono
@@ -89,12 +111,15 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     duenio = celda_inicial
     lineas_poligono = set()
     celdas_ya_visitadas_int = set()
+    celdas_ya_visitadas_int.add(celda_inicial)
     while pila:
         celda_actual = pila.pop()
         logger_cagada.debug("celda act {}".format(celda_actual))
         lineas = house_of_pain_genera_lineas_de_celda(celda_actual)
         assert len(lineas) == 4
-        celdas_ya_visitadas_int.add(celda_actual)
+#        logger_cagada.debug("las celdas ia visitadas {}".format(celdas_ya_visitadas_int))
+        assert lineas[0] != lineas[1]
+        assert lineas[0] < lineas[1]
         for linea in lineas:
             logger_cagada.debug("linea act {}".format(linea))
 # XXX: https://stackoverflow.com/questions/20474549/extract-points-coordinates-from-python-shapely-polygon
@@ -103,15 +128,23 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
             
             if linea in lineas_poligono:
                 lineas_poligono.remove(linea)
+                logger_cagada.debug("linea removida")
             else:
                 lineas_poligono.add(linea)
+                logger_cagada.debug("linea anadida")
+                
+        logger_cagada.debug("las lineas aora son {}".format(sorted(list(lineas_poligono))))
         
         for celda_aledana in map(lambda mov: (celda_actual[0] + mov[0], celda_actual[1] + mov[1]), house_of_pain_movimientos_matrix):
+ #           logger_cagada.debug("proc celda ale {}".format(celda_aledana))
             if celda_aledana not in celdas_ya_visitadas_int and matrix[celda_aledana[0]][celda_aledana[1]] == '#':
+ #               logger_cagada.debug("anadida")
                 pila.append(celda_aledana)
+                celdas_ya_visitadas_int.add(celda_aledana)
     
+    logger_cagada.debug("las lineas del pol {}".format(lineas_poligono))
     for linea in list(lineas_poligono):
-        mapa_linea_a_forma[linea].append(duenio)
+        mapa_linea_a_forma[linea] = duenio
         for puto in list(linea.coords):
             mapa_puto_a_forma[puto].append(duenio)
     
@@ -136,7 +169,7 @@ def house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea
 
                 
 def house_of_pain_core(matrix):
-    mapa_puto_a_forma = {}
+    mapa_puto_a_forma = defaultdict(lambda:[])
     mapa_linea_a_forma = {}
     mapa_celda_a_poligono = {}
     
