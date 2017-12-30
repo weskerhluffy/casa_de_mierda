@@ -34,6 +34,7 @@ immutable_types = set((int, str))
 class Frozen(object):
 
     def __init__(self, value):
+        assert isinstance(value, LineString), "{} no es la instancia esperada".format(type(value))
         self._value = value
 
     def __getattribute__(self, name):
@@ -100,8 +101,10 @@ def house_of_pain_descongela_lista(cacas):
 def house_of_pain_crea_poligono_de_lineas(lineas):
     multicaca = MultiLineString(house_of_pain_descongela_lista(lineas))
     contorno = linemerge(multicaca)
-    logger_cagada.debug("el contorno es {}".format(contorno))
-    poligono = Polygon(contorno)
+    contorno_externo = list(contorno[0].coords)
+    contornos_internos = list(map(lambda multlinea:list(multlinea.coords), contorno[1:]))
+    logger_cagada.debug("el contorno ext es {}, los int {}".format(contorno_externo, contornos_internos))
+    poligono = Polygon(contorno_externo, contornos_internos)
     assert isinstance(poligono, Polygon)
     return poligono
 
