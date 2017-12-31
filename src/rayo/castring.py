@@ -31,6 +31,9 @@ immutable_types = set((int, str))
 BLUE = '#6699cc'
 GRAY = '#999999'
 
+cont_figs = 1
+
+
 # XXX: http://code.activestate.com/recipes/576527-freeze-make-any-object-immutable/
 @total_ordering
 class Frozen(object):
@@ -103,8 +106,16 @@ def house_of_pain_descongela_lista(cacas):
 def house_of_pain_crea_poligono_de_lineas(lineas):
     multicaca = MultiLineString(house_of_pain_descongela_lista(lineas))
     contorno = linemerge(multicaca)
-    contorno_externo = list(contorno[0].coords)
-    contornos_internos = list(map(lambda multlinea:list(multlinea.coords), contorno[1:]))
+    if isinstance(contorno, LineString):
+        contorno_externo = list(contorno.coords)
+        contornos_internos = []
+    else:
+        if isinstance(contorno, MultiLineString):
+            contorno_externo = list(contorno[0].coords)
+            contornos_internos = list(map(lambda multlinea:list(multlinea.coords), contorno[1:]))
+            pass
+        else:
+            assert False, "no es linea ni multiplea {}".format(contorno)
     logger_cagada.debug("el contorno ext es {}, los int {}".format(contorno_externo, contornos_internos))
     poligono = Polygon(contorno_externo, contornos_internos)
     assert isinstance(poligono, Polygon)
@@ -161,7 +172,9 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     
 # XXX: https://gis.stackexchange.com/questions/216745/get-polygon-shapefile-in-python-shapely-by-clipping-linearring-with-linestring
     logger_cagada.debug("de celda {} se generaro poligono {} de cirds {}".format(celda_inicial, poligono, list(poligono.exterior.coords)))
+    logger_cagada.debug("cekdas invol {}".format(sorted(list(celdas_ya_visitadas_int))))
     
+    global cont_figs
     fig = pyplot.figure(1, dpi=180)
     ax = fig.add_subplot(121)
     poly = mapping(poligono)
@@ -169,6 +182,7 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     ax.add_patch(patch)
     ax.set_xlim(xmin=-10, xmax=10)
     ax.set_ylim(ymin=-10, ymax=10)
+    cont_figs += 1
     pyplot.show()
 
                     
