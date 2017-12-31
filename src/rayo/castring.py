@@ -32,6 +32,8 @@ BLUE = '#6699cc'
 GRAY = '#999999'
 
 cont_figs = 1
+fig = None
+ax = None
 
 
 # XXX: http://code.activestate.com/recipes/576527-freeze-make-any-object-immutable/
@@ -175,15 +177,14 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     logger_cagada.debug("cekdas invol {}".format(sorted(list(celdas_ya_visitadas_int))))
     
     global cont_figs
-    fig = pyplot.figure(1, dpi=180)
-    ax = fig.add_subplot(121)
+    global fig
+    global ax
     poly = mapping(poligono)
     patch = PolygonPatch(poly, fc=BLUE, ec=GRAY, alpha=0.5, zorder=2)
     ax.add_patch(patch)
     ax.set_xlim(xmin=-10, xmax=10)
     ax.set_ylim(ymin=-10, ymax=10)
     cont_figs += 1
-    pyplot.show()
 
                     
 def house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono):
@@ -201,7 +202,12 @@ def house_of_pain_core(matrix):
     mapa_linea_a_forma = {}
     mapa_celda_a_poligono = {}
     
+    global fig
+    global ax
+    fig = pyplot.figure(1, dpi=180)
+    ax = fig.add_subplot(121)
     house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono)
+    pyplot.show()
 
 
 def caca_comun_lee_linea_como_num():
