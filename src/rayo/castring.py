@@ -21,6 +21,9 @@ import numpy as np
 from shapely.ops import linemerge
 from collections import defaultdict
 from functools import total_ordering
+from math import sqrt
+from numpy.ma.core import arctan2, sin, cos
+from shapely.geometry.collection import GeometryCollection
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -56,7 +59,8 @@ class Frozen(object):
     
     def __repr__(self):
         return self._value.__str__()
-    
+
+# XXX: https://stackoverflow.com/questions/3942303/how-does-a-python-set-check-if-two-objects-are-equal-what-methods-does-an-o
     def __hash__(self):
         putos = None
         mierda = self._value
@@ -67,6 +71,7 @@ class Frozen(object):
 
     def __lt__(self, orto):
         mierda = self._value
+# XXX: https://stackoverflow.com/questions/20474549/extract-points-coordinates-from-python-shapely-polygon
         putos = mapping(mierda)["coordinates"]
         ass = orto._value
         fuck = mapping(ass)["coordinates"]
@@ -78,6 +83,113 @@ class Frozen(object):
         ass = orto._value
         fuck = mapping(ass)["coordinates"]
         return putos == fuck
+
+
+def posicion_suma(pos_1, pos_2):
+    return (pos_1[0] + pos_2[0], pos_1[1] + pos_2[1])
+
+
+def posicion_resta(pos_1, pos_2):
+    return posicion_suma(pos_1, (-pos_2[0], -pos_2[1]))
+
+    
+def posicion_a_posicion_polar(centro, posi):
+    distancias = posicion_resta(posi, centro)
+    angulo = arctan2(distancias[0], distancias[1])
+    radio = sqrt(pow(distancias[0], 2) + pow(distancias[1], 2))
+    return (angulo, radio)
+
+
+def posicion_polar_a_posicion(centro, pos_pol):
+    dist_x = sin(pos_pol[0]) * pos_pol[1]
+    dist_y = cos(pos_pol[0]) * pos_pol[1]
+    poli = posicion_suma(centro, (dist_x, dist_y))
+    return poli
+
+
+class sektor_cir_culo():
+
+    def __init__(self, centro, radio, pos_lim_1, pos_lim_2):
+        self.centro = centro
+        self.radio = radio
+        self.pos_lim_1 = min(pos_lim_1, pos_lim_2)
+        self.pos_lim_2 = max(pos_lim_1, pos_lim_2)
+        self.angulo = None
+        self.segmento_sektor_1 = None
+        self.segmento_sektor_2 = None
+        self.circulo = None
+        self.pos_polar_seg_1 = None
+        self.pos_polar_seg_2 = None
+    
+    @classmethod
+    def calcula_angulo_sektor(cls, centro, pos_lim_1, pos_lim_2):
+        pos_lim_1_int = posicion_resta(pos_lim_1, centro)
+        pos_lim_2_int = posicion_resta(pos_lim_2, centro)
+        centro_int = posicion_resta(centro, centro)
+        assert centro_int == (0, 0)
+        
+        angulo_1 = arctan2(pos_lim_1_int[0], pos_lim_1_int[1]) * 180 / np.pi
+        angulo_2 = arctan2(pos_lim_2_int[0], pos_lim_2_int[1]) * 180 / np.pi
+        
+        if(angulo_1 < 0):
+            angulo_1 = 360 + angulo_1
+            
+        if(angulo_2 < 0):
+            angulo_2 = 360 + angulo_2
+        
+        angulo = max(angulo_1, angulo_2) - min(angulo_1, angulo_2)
+        
+        if angulo > 180:
+            angulo = 360 - angulo
+        
+        return angulo
+    
+    @classmethod
+    def genera_segmento_linea(cls, centro, pos, tam):
+        polar = posicion_a_posicion_polar(centro, pos)
+        polar[1] = tam
+        final_segmento = posicion_polar_a_posicion(centro, polar)
+        return final_segmento
+    
+    def _inicializa(self):
+        self.angulo = sektor_cir_culo.calcula_angulo_sektor(self.centro, self.pos_lim_1, self.pos_lim_2)
+        final_segmento_1 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_1, self.radio)
+        final_segmento_2 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_2, self.radio)
+        
+        self.segmento_sektor_1 = LineString([Point(self.centro), Point(final_segmento_1)])
+        self.segmento_sektor_2 = LineString(map(lambda pos:Point(pos[0], pos[1]), [self.centro, final_segmento_2]))
+        
+        self.circulo = Point(self.centro).buffer(self.radio)
+        
+        pos_polar_seg_1 = posicion_a_posicion_polar(self.centro, final_segmento_1)
+        pos_polar_seg_2 = posicion_a_posicion_polar(self.centro, final_segmento_2)
+        self.pos_polar_seg_1 = min(pos_polar_seg_1, pos_polar_seg_2)
+        self.pos_polar_seg_2 = max(pos_polar_seg_1, pos_polar_seg_2)
+    
+    def calcula_interseccion_segmento_de_linea_con_semicirculo_sektor(self, segmento):
+        intersex = self.circulo.intersection(segmento)
+        assert not isinstance(intersex, GeometryCollection)
+        if not isinstance(intersex, Point):
+            assert isinstance(intersex, LineString)
+            for posicion in list(intersex.coords):
+                pos_pol = posicion_a_posicion_polar(self.centro, posicion)
+                
+    
+    def calcula_interseccion_con_segmento_de_linea(self, segmento, con_segmento_sektor_1):
+        if con_segmento_sektor_1:
+            segmento_sektor = self.segmento_sektor_1
+        else:
+            segmento_sektor = self.segmento_sektor_2
+        
+        intersex = segmento.intersection(segmento_sektor)
+        
+        assert (not isinstance(intersex, LineString))
+        
+        if not isinstance(intersex, Point):
+            pass
+    
+    def __repr__(self):
+        return "centro {} segmentos sektor {} y {}".format(self.centro, self.segmento_sektor_1, self.segmento_sektor_2)
 
     
 def freeze(value):
@@ -119,6 +231,7 @@ def house_of_pain_crea_poligono_de_lineas(lineas):
         else:
             assert False, "no es linea ni multiplea {}".format(contorno)
     logger_cagada.debug("el contorno ext es {}, los int {}".format(contorno_externo, contornos_internos))
+# XXX: https://gis.stackexchange.com/questions/72306/does-shapely-within-function-identify-inner-holes
     poligono = Polygon(contorno_externo, contornos_internos)
     assert isinstance(poligono, Polygon)
     return poligono
