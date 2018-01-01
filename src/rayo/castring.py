@@ -120,6 +120,7 @@ class sektor_cir_culo():
         self.circulo = None
         self.pos_polar_seg_1 = None
         self.pos_polar_seg_2 = None
+        self.normalizar_angulos = False
     
     @classmethod
     def calcula_angulo_sektor(cls, centro, pos_lim_1, pos_lim_2):
@@ -161,12 +162,48 @@ class sektor_cir_culo():
         
         self.circulo = Point(self.centro).buffer(self.radio)
         
+        self._inicializa_posiciones_polares(final_segmento_1, final_segmento_2)
+        
+        logger_cagada.debug("las posiciones polares de {} {} son {} {}".format(self.segmento_sektor_1, self.segmento_sektor_2, self.pos_polar_seg_1, self.pos_polar_seg_2))
+    
+    def _inicializa_posiciones_polares(self, final_segmento_1, final_segmento_2):
         pos_polar_seg_1 = posicion_a_posicion_polar(self.centro, final_segmento_1)
         pos_polar_seg_2 = posicion_a_posicion_polar(self.centro, final_segmento_2)
-        self.pos_polar_seg_1 = min(pos_polar_seg_1, pos_polar_seg_2)
-        self.pos_polar_seg_2 = max(pos_polar_seg_1, pos_polar_seg_2)
+        
+        angulo_1 = pos_polar_seg_1[0]
+        angulo_2 = pos_polar_seg_2[0]
+        
+        angulo_1, angulo_2 = sorted([angulo_1, angulo_2])
+        
+        es_ang_negativo_1 = angulo_1 < 0
+        es_ang_negativo_2 = angulo_2 < 0
+        
+        if es_ang_negativo_1 != es_ang_negativo_2:
+            dif_angulos = angulo_2 - angulo_1
+            if dif_angulos > np.pi:
+                angulo_1, angulo_2 = angulo_2, np.pi * 2 + angulo_1
+                self.normalizar_angulos = True
+        
+        pos_polar_seg_1[0] = angulo_1
+        pos_polar_seg_2[0] = angulo_2
+        self.pos_polar_seg_1 = pos_polar_seg_1
+        self.pos_polar_seg_2 = pos_polar_seg_2
+    
+    def normaliza_posicion_polar(self, pos_pol):
+        if self.normalizar_angulos:
+            angulo_pol = pos_pol[0]
+            if angulo_pol < 0:
+                angulo_pol = np.pi * 2 + angulo_pol
+            pos_pol[0] = angulo_pol
+    
+    def posicion_polar_dentro_de_sektor(self, pos_pol):
+        if self.pos_polar_seg_1[0] <= pos_pol[0] <= self.pos_polar_seg_2[0]:
+            return True
+        else:
+            return False
     
     def calcula_interseccion_segmento_de_linea_con_semicirculo_sektor(self, segmento):
+        putos_intersex = []
         intersex = self.circulo.intersection(segmento)
         assert not isinstance(intersex, GeometryCollection)
         if not isinstance(intersex, Point):
@@ -174,6 +211,11 @@ class sektor_cir_culo():
             for posicion in list(intersex.coords):
                 pos_pol = posicion_a_posicion_polar(self.centro, posicion)
                 
+                self.normaliza_posicion_polar(pos_pol)
+                esta_en_sector=self.posicion_polar_dentro_de_sektor(pos_pol)
+        else:
+            putos_intersex.append(intersex)
+        return putos_intersex
     
     def calcula_interseccion_con_segmento_de_linea(self, segmento, con_segmento_sektor_1):
         if con_segmento_sektor_1:
