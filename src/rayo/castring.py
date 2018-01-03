@@ -24,6 +24,8 @@ from functools import total_ordering
 from math import sqrt
 from numpy.ma.core import arctan2, sin, cos
 from shapely.geometry.collection import GeometryCollection
+from functional import compose, partial
+from functools import reduce
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -106,6 +108,34 @@ def posicion_polar_a_posicion(centro, pos_pol):
     poli = posicion_suma(centro, (dist_x, dist_y))
     return poli
 
+def puto_a_posicion(puto):
+    return puto.x, puto.y
+
+def puto_a_posicion_polar(centro, puto):
+    return posicion_a_posicion_polar(centro, puto_a_posicion(puto))
+
+def posicion_valida_dimension_igual(posiciones, para_dimension_x):
+    idx_dimension = 0
+    
+    assert len(posiciones)
+    
+    if not para_dimension_x:
+        idx_dimension = 1
+    
+    referencia = posiciones[0][idx_dimension]
+        
+    return all(map(lambda posi:posi[idx_dimension] == referencia, posiciones))
+
+def posicion_valida_colinearidad(posiciones):
+    return posicion_valida_dimension_igual(posiciones, True) and posicion_valida_dimension_igual(posiciones, False)
+
+# XXX: https://stackoverflow.com/questions/21291725/determine-if-shapely-point-is-within-a-linestring-multilinestring
+def puto_valida_colinearidad(segmento, putos):
+    return all(map(lambda puto:segmento.distance(puto) < 1e-8, putos))
+
+# XXX: https://stackoverflow.com/questions/16739290/composing-functions-in-python
+def caca_comun_composicion(functiones):
+    return partial(reduce, compose)(functiones)
 
 class sektor_cir_culo():
 
@@ -167,8 +197,8 @@ class sektor_cir_culo():
         logger_cagada.debug("las posiciones polares de {} {} son {} {}".format(self.segmento_sektor_1, self.segmento_sektor_2, self.pos_polar_seg_1, self.pos_polar_seg_2))
     
     def _inicializa_posiciones_polares(self, final_segmento_1, final_segmento_2):
-        pos_polar_seg_1 = posicion_a_posicion_polar(self.centro, final_segmento_1)
-        pos_polar_seg_2 = posicion_a_posicion_polar(self.centro, final_segmento_2)
+        pos_polar_seg_1 = self.posicion_a_posicion_polar_de_sektor(final_segmento_1)
+        pos_polar_seg_2 = self.posicion_a_posicion_polar_de_sektor(final_segmento_2)
         
         angulo_1 = pos_polar_seg_1[0]
         angulo_2 = pos_polar_seg_2[0]
@@ -202,20 +232,53 @@ class sektor_cir_culo():
         else:
             return False
     
-    def calcula_interseccion_segmento_de_linea_con_semicirculo_sektor(self, segmento):
+    def posicion_polar_en_cuerda_sektor(self, pos_pol):
+        return self.posicion_polar_dentro_de_sektor(pos_pol) and pos_pol[1] == self.radio
+    
+    def posicion_en_cuerda_sektor(self, posi):
+        return self.posicion_polar_en_cuerda_sektor(self.posicion_a_posicion_polar_de_sektor(posi))
+    
+    def puto_en_cuerda_sektor(self, puto):
+        return self.posicion_en_cuerda_sektor(puto_a_posicion(puto))
+    
+    def posicion_a_posicion_polar_de_sektor(self, posi):
+        return posicion_a_posicion_polar(self.centro, posi)
+    
+    def posicion_polar_a_posicion_de_sektor(self, pos_pol):
+        return posicion_polar_a_posicion(self.centro, pos_pol)
+    
+    @property
+    def segmentos_sektor(self):
+        return [self.segmento_sektor_1, self.segmento_sektor_2]
+    
+    def valida_colinearidad(self, putos):
+        return posicion_valida_colinearidad(map(lambda puto:(puto.x, puto.y), self.segmentos_sektor + putos)) or any(map(lambda segmento:puto_valida_colinearidad(segmento, putos), self.segmentos_sektor))
+    
+    def calcula_interseccion_con_arco_sektor(self, segmento):
         putos_intersex = []
+        puto_tangencial = False
         intersex = self.circulo.intersection(segmento)
         assert not isinstance(intersex, GeometryCollection)
         if not isinstance(intersex, Point):
             assert isinstance(intersex, LineString)
-            for posicion in list(intersex.coords):
-                pos_pol = posicion_a_posicion_polar(self.centro, posicion)
-                
-                self.normaliza_posicion_polar(pos_pol)
-                esta_en_sector=self.posicion_polar_dentro_de_sektor(pos_pol)
+            
+#            putos_intersex = map(lambda pos_pol:Point(self.posicion_polar_a_posicion_de_sektor(pos_pol)), filter(lambda pos_pol:self.posicion_polar_en_cuerda_sektor(pos_pol), map(lambda posi:self.normaliza_posicion_polar(self.posicion_a_posicion_polar_de_sektor(posi)), list(intersex.coords))))
+            putos_intersex = map(Point, filter(caca_comun_composicion(self.posicion_a_posicion_polar_de_sektor, self.normaliza_posicion_polar, self.posicion_polar_en_cuerda_sektor) , list(intersex.coords)))
+            
+#            for posicion in list(intersex.coords):
+#                pos_pol = posicion_a_posicion_polar(self.centro, posicion)
+#                self.normaliza_posicion_polar(pos_pol)
+#                esta_en_sector = self.posicion_polar_en_cuerda_sektor(pos_pol)
+#                if esta_en_sector:
+#                    putos_intersex.append(Point(posicion))
         else:
             putos_intersex.append(intersex)
-        return putos_intersex
+            assert self.puto_en_cuerda_sektor(intersex)
+            puto_tangencial = True
+        
+        assert self.valida_colinearidad(putos_intersex)
+        
+        return putos_intersex, puto_tangencial
     
     def calcula_interseccion_con_segmento_de_linea(self, segmento, con_segmento_sektor_1):
         if con_segmento_sektor_1:
@@ -227,8 +290,40 @@ class sektor_cir_culo():
         
         assert (not isinstance(intersex, LineString))
         
-        if not isinstance(intersex, Point):
-            pass
+        if isinstance(intersex, Point):
+            return intersex
+        else:
+            return None
+    
+    def calcula_intersexiones_de_segmento_con_sektor(self, segmento):
+        putos_intersexion = []
+
+        intersex_seg_sektor_1 = self.calcula_interseccion_con_segmento_de_linea(segmento, True)
+        intersex_seg_sektor_2 = self.calcula_interseccion_con_segmento_de_linea(segmento, False)
+        intersexs_arco, puto_tangencial = self.calcula_interseccion_con_arco_sektor(segmento)
+        
+        intersex_arco_cnt = len(intersexs_arco)
+        if(intersex_arco_cnt == 2 or puto_tangencial):
+            assert (puto_tangencial and intersex_arco_cnt == 1) or (not puto_tangencial and intersex_arco_cnt == 2)
+            
+            putos_intersexion = intersexs_arco
+            
+            if(puto_tangencial):
+                putos_intersexion += intersexs_arco
+        else:
+            if(intersex_arco_cnt == 1):
+                assert (intersex_seg_sektor_1 is None) != (intersex_seg_sektor_2 is None)
+                putos_intersexion = intersexs_arco + [intersex_seg_sektor_1 if intersex_seg_sektor_1 else intersex_seg_sektor_2]
+            else:
+                assert intersex_seg_sektor_1 is not None and intersex_seg_sektor_2 is not None
+                
+                putos_intersexion = [intersex_seg_sektor_1, intersex_seg_sektor_2]
+        
+        assert self.valida_colinearidad(putos_intersexion)
+        
+        assert (puto_tangencial and len(putos_intersexion) == 1) or (not puto_tangencial and len(putos_intersexion) == 2)
+        
+        return map(puto_a_posicion, putos_intersexion)
     
     def __repr__(self):
         return "centro {} segmentos sektor {} y {}".format(self.centro, self.segmento_sektor_1, self.segmento_sektor_2)
