@@ -21,7 +21,7 @@ import numpy as np
 from shapely.ops import linemerge
 from collections import defaultdict
 from functools import total_ordering
-from math import sqrt
+from math import sqrt, ceil, floor
 from numpy.ma.core import arctan2, sin, cos
 from shapely.geometry.collection import GeometryCollection
 from functional import compose, partial
@@ -139,9 +139,14 @@ def caca_comun_composicion(functiones):
 
 class sektor_cir_culo():
 
-    def __init__(self, centro, radio, pos_lim_1, pos_lim_2):
+    angulos_extremos_verticales = [np.pi / 2, -np.pi / 2]
+    angulos_extremos_horizontales = [0, np.pi]
+    
+    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y):
         self.centro = centro
         self.radio = radio
+        self.lim_x = lim_x
+        self.lim_y = lim_y
         self.pos_lim_1 = min(pos_lim_1, pos_lim_2)
         self.pos_lim_2 = max(pos_lim_1, pos_lim_2)
         self.angulo = None
@@ -151,6 +156,16 @@ class sektor_cir_culo():
         self.pos_polar_seg_1 = None
         self.pos_polar_seg_2 = None
         self.normalizar_angulos = False
+        self.pos_pol_final_segmento_1 = None
+        self.pos_pol_final_segmento_2 = None
+        self.pos_final_segmento_1 = None
+        self.pos_final_segmento_2 = None
+        self.valores_x_abarcados = None
+        self.valores_y_abarcados = None
+        self.extremo_caja_vertical_min = None
+        self.extremo_caja_vertical_max = None
+        self.extremo_caja_horizontal_min = None
+        self.extremo_caja_horizontal_max = None
     
     @classmethod
     def calcula_angulo_sektor(cls, centro, pos_lim_1, pos_lim_2):
@@ -184,21 +199,24 @@ class sektor_cir_culo():
     
     def _inicializa(self):
         self.angulo = sektor_cir_culo.calcula_angulo_sektor(self.centro, self.pos_lim_1, self.pos_lim_2)
-        final_segmento_1 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_1, self.radio)
-        final_segmento_2 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_2, self.radio)
+        self.pos_final_segmento_1 = pos_final_segmento_1 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_1, self.radio)
+        self.pos_final_segmento_2 = pos_final_segmento_2 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_2, self.radio)
         
-        self.segmento_sektor_1 = LineString([Point(self.centro), Point(final_segmento_1)])
-        self.segmento_sektor_2 = LineString(map(lambda pos:Point(pos[0], pos[1]), [self.centro, final_segmento_2]))
+        self.pos_pol_final_segmento_1 = self.posicion_a_posicion_polar_de_sektor(self.pos_final_segmento_1)
+        self.pos_pol_final_segmento_2 = self.posicion_a_posicion_polar_de_sektor(self.pos_final_segmento_2)
+        
+        self.segmento_sektor_1 = LineString([Point(self.centro), Point(pos_final_segmento_1)])
+        self.segmento_sektor_2 = LineString(map(Point, [self.centro, pos_final_segmento_2]))
         
         self.circulo = Point(self.centro).buffer(self.radio)
         
-        self._inicializa_posiciones_polares(final_segmento_1, final_segmento_2)
+        self._inicializa_posiciones_polares()
         
         logger_cagada.debug("las posiciones polares de {} {} son {} {}".format(self.segmento_sektor_1, self.segmento_sektor_2, self.pos_polar_seg_1, self.pos_polar_seg_2))
     
-    def _inicializa_posiciones_polares(self, final_segmento_1, final_segmento_2):
-        pos_polar_seg_1 = self.posicion_a_posicion_polar_de_sektor(final_segmento_1)
-        pos_polar_seg_2 = self.posicion_a_posicion_polar_de_sektor(final_segmento_2)
+    def _inicializa_posiciones_polares(self):
+        pos_polar_seg_1 = self.pos_pol_final_segmento_1
+        pos_polar_seg_2 = self.pos_pol_final_segmento_2
         
         angulo_1 = pos_polar_seg_1[0]
         angulo_2 = pos_polar_seg_2[0]
@@ -218,6 +236,51 @@ class sektor_cir_culo():
         pos_polar_seg_2[0] = angulo_2
         self.pos_polar_seg_1 = pos_polar_seg_1
         self.pos_polar_seg_2 = pos_polar_seg_2
+    
+    @property
+    def posiciones_finales_segmentos(self):
+        return [self.pos_final_segmento_1, self.pos_final_segmento_2]
+    
+    @property
+    def posiciones_polares_finales_segmentos(self):
+        return [self.pos_pol_final_segmento_1, self.pos_pol_final_segmento_2]
+    
+    def _calcula_extremos_caja(self, calcula_extremos_verticales):
+        angulos_extremos = []
+        pos_pol_extremas = []
+        pos_pol_extremas_en_sektor = []
+        limite_max = None
+        limite_min = None
+        idx_dimension = 0
+        posiciones_potenciales_extremas = self.posiciones_finales_segmentos + [self.centro]
+        
+        if calcula_extremos_verticales:
+            angulos_extremos = sektor_cir_culo.angulos_extremos_verticales
+            idx_dimension = 0
+        else:
+            angulos_extremos = sektor_cir_culo.angulos_extremos_horizontales
+            idx_dimension = 1
+        
+        pos_pol_extremas = map(lambda angulo:(angulo, self.radio), angulos_extremos)
+        
+        pos_pol_extremas_en_sektor = filter(self.posicion_polar_en_cuerda_sektor, pos_pol_extremas)
+        
+        assert len(pos_pol_extremas_en_sektor) < 2
+        
+        if len(pos_pol_extremas_en_sektor):
+            posiciones_potenciales_extremas.append(self.posicion_a_posicion_polar_de_sektor(pos_pol_extremas_en_sektor[0]))
+        
+        limite_max = max(posiciones_potenciales_extremas, key=lambda posi:posi[idx_dimension])[idx_dimension]
+        limite_min = min(posiciones_potenciales_extremas, key=lambda posi:posi[idx_dimension])[idx_dimension]
+        
+        return limite_min, limite_max
+
+    def _calcula_caja_sektor(self):
+        self.extremo_caja_vertical_min, self.extremo_caja_vertical_max = self._calcula_extremos_caja(True)
+        self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max = self._calcula_extremos_caja(False)
+        
+        self.valores_x_abarcados = range(max(ceil(self.extremo_caja_vertical_min), 0), min(floor(self.extremo_caja_vertical_max), self.lim_x))
+        self.valores_y_abarcados = range(max(ceil(self.extremo_caja_horizontal_min), 0), min(floor(self.extremo_caja_horizontal_max), self.lim_y))
     
     def normaliza_posicion_polar(self, pos_pol):
         if self.normalizar_angulos:
