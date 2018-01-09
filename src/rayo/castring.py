@@ -19,13 +19,15 @@ import geojson
 from shapely.geometry.linestring import LineString
 import numpy as np
 from shapely.ops import linemerge
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from functools import total_ordering
 from math import sqrt, ceil, floor
 from numpy.ma.core import arctan2, sin, cos
 from shapely.geometry.collection import GeometryCollection
 from functional import compose, partial
 from functools import reduce
+from bisect import bisect_left, bisect_right
+from operator import add
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -35,6 +37,9 @@ immutable_types = set((int, str))
 
 BLUE = '#6699cc'
 GRAY = '#999999'
+ROJO = "#FC2C00"
+VERDE = "#00ACFC"
+AMARILLO = "#F7DC6F"
 
 cont_figs = 1
 fig = None
@@ -86,9 +91,236 @@ class Frozen(object):
         fuck = mapping(ass)["coordinates"]
         return putos == fuck
 
+# XXX: http://code.activestate.com/recipes/577197-sortedcollection/
+class SortedCollection(object):
+    '''Sequence sorted by a key function.
+
+    SortedCollection() is much easier to work with than using bisect() directly.
+    It supports key functions like those use in sorted(), min(), and max().
+    The result of the key function call is saved so that keys can be searched
+    efficiently.
+
+    Instead of returning an insertion-point which can be hard to interpret, the
+    five find-methods return a specific item in the sequence. They can scan for
+    exact matches, the last item less-than-or-equal to a key, or the first item
+    greater-than-or-equal to a key.
+
+    Once found, an item's ordinal position can be located with the index() method.
+    New items can be added with the insert() and insert_right() methods.
+    Old items can be deleted with the remove() method.
+
+    The usual sequence methods are provided to support indexing, slicing,
+    length lookup, clearing, copying, forward and reverse iteration, contains
+    checking, item counts, item removal, and a nice looking repr.
+
+    Finding and indexing are O(log n) operations while iteration and insertion
+    are O(n).  The initial sort is O(n log n).
+
+    The key function is stored in the 'key' attibute for easy introspection or
+    so that you can assign a new key function (triggering an automatic re-sort).
+
+    In short, the class was designed to handle all of the common use cases for
+    bisect but with a simpler API and support for key functions.
+
+    >>> from pprint import pprint
+    >>> from operator import itemgetter
+
+    >>> s = SortedCollection(key=itemgetter(2))
+    >>> for record in [
+    ...         ('roger', 'young', 30),
+    ...         ('angela', 'jones', 28),
+    ...         ('bill', 'smith', 22),
+    ...         ('david', 'thomas', 32)]:
+    ...     s.insert(record)
+
+    >>> pprint(list(s))         # show records sorted by age
+    [('bill', 'smith', 22),
+     ('angela', 'jones', 28),
+     ('roger', 'young', 30),
+     ('david', 'thomas', 32)]
+
+    >>> s.find_le(29)           # find oldest person aged 29 or younger
+    ('angela', 'jones', 28)
+    >>> s.find_lt(28)           # find oldest person under 28
+    ('bill', 'smith', 22)
+    >>> s.find_gt(28)           # find youngest person over 28
+    ('roger', 'young', 30)
+
+    >>> r = s.find_ge(32)       # find youngest person aged 32 or older
+    >>> s.index(r)              # get the index of their record
+    3
+    >>> s[3]                    # fetch the record at that index
+    ('david', 'thomas', 32)
+
+    >>> s.key = itemgetter(0)   # now sort by first name
+    >>> pprint(list(s))
+    [('angela', 'jones', 28),
+     ('bill', 'smith', 22),
+     ('david', 'thomas', 32),
+     ('roger', 'young', 30)]
+
+    '''
+
+    def __init__(self, iterable=(), key=None):
+        self._given_key = key
+        key = (lambda x: x) if key is None else key
+        decorated = sorted((key(item), item) for item in iterable)
+        self._keys = [k for k, item in decorated]
+        self._items = [item for k, item in decorated]
+        self._key = key
+
+    def _getkey(self):
+        return self._key
+
+    def _setkey(self, key):
+        if key is not self._key:
+            self.__init__(self._items, key=key)
+
+    def _delkey(self):
+        self._setkey(None)
+
+    key = property(_getkey, _setkey, _delkey, 'key function')
+
+    def clear(self):
+        self.__init__([], self._key)
+
+    def copy(self):
+        return self.__class__(self, self._key)
+
+    def __len__(self):
+        return len(self._items)
+
+    def __getitem__(self, i):
+        return self._items[i]
+
+    def __iter__(self):
+        return iter(self._items)
+
+    def __reversed__(self):
+        return reversed(self._items)
+
+    def __repr__(self):
+        return '%s(%r, key=%s)' % (
+            self.__class__.__name__,
+            self._items,
+            getattr(self._given_key, '__name__', repr(self._given_key))
+        )
+
+    def __reduce__(self):
+        return self.__class__, (self._items, self._given_key)
+
+    def __contains__(self, item):
+        k = self._key(item)
+        i = bisect_left(self._keys, k)
+        j = bisect_right(self._keys, k)
+        return item in self._items[i:j]
+
+    def index(self, item):
+        'Find the position of an item.  Raise ValueError if not found.'
+        k = self._key(item)
+        i = bisect_left(self._keys, k)
+        j = bisect_right(self._keys, k)
+        return self._items[i:j].index(item) + i
+
+    def count(self, item):
+        'Return number of occurrences of item'
+        k = self._key(item)
+        i = bisect_left(self._keys, k)
+        j = bisect_right(self._keys, k)
+        return self._items[i:j].count(item)
+
+    def insert(self, item):
+        'Insert a new item.  If equal keys are found, add to the left'
+        k = self._key(item)
+        i = bisect_left(self._keys, k)
+        self._keys.insert(i, k)
+        self._items.insert(i, item)
+
+    def insert_right(self, item):
+        'Insert a new item.  If equal keys are found, add to the right'
+        k = self._key(item)
+        i = bisect_right(self._keys, k)
+        self._keys.insert(i, k)
+        self._items.insert(i, item)
+
+    def remove(self, item):
+        'Remove first occurence of item.  Raise ValueError if not found'
+        i = self.index(item)
+        del self._keys[i]
+        del self._items[i]
+
+    def find(self, k):
+        'Return first item with a key == k.  Raise ValueError if not found.'
+        i = bisect_left(self._keys, k)
+        if i != len(self) and self._keys[i] == k:
+            return self._items[i]
+        raise ValueError('No item found with key equal to: %r' % (k,))
+
+    def find_le(self, k):
+        'Return last item with a key <= k.  Raise ValueError if not found.'
+        i = bisect_right(self._keys, k)
+        if i:
+            return self._items[i - 1]
+        raise ValueError('No item found with key at or below: %r' % (k,))
+
+    def find_lt(self, k):
+        'Return last item with a key < k.  Raise ValueError if not found.'
+        i = bisect_left(self._keys, k)
+        if i:
+            return self._items[i - 1]
+        raise ValueError('No item found with key below: %r' % (k,))
+
+    def find_ge(self, k):
+        'Return first item with a key >= equal to k.  Raise ValueError if not found'
+        i = bisect_left(self._keys, k)
+        if i != len(self):
+            return self._items[i]
+        raise ValueError('No item found with key at or above: %r' % (k,))
+
+    def find_gt(self, k):
+        'Return first item with a key > k.  Raise ValueError if not found'
+        i = bisect_right(self._keys, k)
+        if i != len(self):
+            return self._items[i]
+        raise ValueError('No item found with key above: %r' % (k,))
+    
+    def encuentra_interfalo(self, llave_inicial, llave_final):
+        assert self._key(llave_inicial) <= self._key(llave_final)
+        i = bisect_left(self._keys, llave_inicial)
+        valores = []
+        if i != len(self):
+            j = bisect_right(self._keys, llave_final)
+            assert i <= j
+            valores = self._items[i:j]
+        return valores
+
+# XXX: https://www.accelebrate.com/blog/named-tuples-in-python/
+conjunto_ordenado_dimension = namedtuple("conjunto_ordenado_dimension", "idx_dimension llave")
+class conjunto_ordenado_en_dimensiones():
+    def __init__(self, dimensiones):
+        self.dimensiones = dimensiones
+        self.conjunto = None
+        self.conjuntos_ordenados = {}
+        self._inicializa_conjuntos_ordenados()
+    
+    def _inicializa_conjuntos_ordenados(self):
+        if not self.dimensiones:
+            self.conjuntos_ordenados[0] = SortedCollection([])
+        else:
+            for idx_dime, llave in self.dimensiones:
+                self.conjuntos_ordenados[idx_dime] = SortedCollection([], key=llave)
+    
+    def insertar(self, valor):
+        for colleccion in self.conjuntos_ordenados.values():
+            colleccion.insert(valor)
+    
+    def encuentra_interfalo(self, valor_inicial, valor_final, idx_dimension):
+        conjunto = self.conjuntos_ordenados[idx_dimension]
+        valores = conjunto.encuentra_interfalo(valor_inicial, valor_final)
+        return valores
 
 def posicion_suma(pos_1, pos_2):
-    return (pos_1[0] + pos_2[0], pos_1[1] + pos_2[1])
+    return [pos_1[0] + pos_2[0], pos_1[1] + pos_2[1]]
 
 
 def posicion_resta(pos_1, pos_2):
@@ -96,10 +328,12 @@ def posicion_resta(pos_1, pos_2):
 
     
 def posicion_a_posicion_polar(centro, posi):
+    logger_cagada.debug("calculando pos pol de {}".format(posi))
     distancias = posicion_resta(posi, centro)
     angulo = arctan2(distancias[0], distancias[1])
     radio = sqrt(pow(distancias[0], 2) + pow(distancias[1], 2))
-    return (angulo, radio)
+    logger_cagada.debug("pos pol es {}".format([angulo, radio]))
+    return [angulo, radio]
 
 
 def posicion_polar_a_posicion(centro, pos_pol):
@@ -124,10 +358,11 @@ def posicion_valida_dimension_igual(posiciones, para_dimension_x):
     
     referencia = posiciones[0][idx_dimension]
         
-    return all(map(lambda posi:posi[idx_dimension] == referencia, posiciones))
+    return all(map(lambda posi:posi[idx_dimension] == referencia or abs(posi[idx_dimension] - referencia) < 1e-8, posiciones))
 
 def posicion_valida_colinearidad(posiciones):
-    return posicion_valida_dimension_igual(posiciones, True) and posicion_valida_dimension_igual(posiciones, False)
+    logger_cagada.debug("validando pos {}".format(posiciones))
+    return posicion_valida_dimension_igual(posiciones, True) or posicion_valida_dimension_igual(posiciones, False)
 
 # XXX: https://stackoverflow.com/questions/21291725/determine-if-shapely-point-is-within-a-linestring-multilinestring
 def puto_valida_colinearidad(segmento, putos):
@@ -135,26 +370,29 @@ def puto_valida_colinearidad(segmento, putos):
 
 # XXX: https://stackoverflow.com/questions/16739290/composing-functions-in-python
 def caca_comun_composicion(functiones):
-    return partial(reduce, compose)(functiones)
+    logger_cagada.debug("compocaca")
+    caca = partial(reduce, compose)(reversed(functiones))
+    logger_cagada.debug("se regresa {}".format(caca))
+    return caca
 
 class sektor_cir_culo():
 
     angulos_extremos_verticales = [np.pi / 2, -np.pi / 2]
     angulos_extremos_horizontales = [0, np.pi]
     
-    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y):
+    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y, putos_ordenados, mapa_puto_a_forma):
         self.centro = centro
         self.radio = radio
-        self.lim_x = lim_x
-        self.lim_y = lim_y
         self.pos_lim_1 = min(pos_lim_1, pos_lim_2)
         self.pos_lim_2 = max(pos_lim_1, pos_lim_2)
+        self.lim_x = lim_x
+        self.lim_y = lim_y
+        self.putos_ordenados = putos_ordenados
+        self.mapa_puto_a_forma = mapa_puto_a_forma
         self.angulo = None
         self.segmento_sektor_1 = None
         self.segmento_sektor_2 = None
         self.circulo = None
-        self.pos_polar_seg_1 = None
-        self.pos_polar_seg_2 = None
         self.normalizar_angulos = False
         self.pos_pol_final_segmento_1 = None
         self.pos_pol_final_segmento_2 = None
@@ -166,13 +404,14 @@ class sektor_cir_culo():
         self.extremo_caja_vertical_max = None
         self.extremo_caja_horizontal_min = None
         self.extremo_caja_horizontal_max = None
+        self._inicializa()
     
     @classmethod
     def calcula_angulo_sektor(cls, centro, pos_lim_1, pos_lim_2):
         pos_lim_1_int = posicion_resta(pos_lim_1, centro)
         pos_lim_2_int = posicion_resta(pos_lim_2, centro)
         centro_int = posicion_resta(centro, centro)
-        assert centro_int == (0, 0)
+        assert centro_int == [0, 0]
         
         angulo_1 = arctan2(pos_lim_1_int[0], pos_lim_1_int[1]) * 180 / np.pi
         angulo_2 = arctan2(pos_lim_2_int[0], pos_lim_2_int[1]) * 180 / np.pi
@@ -198,6 +437,7 @@ class sektor_cir_culo():
         return final_segmento
     
     def _inicializa(self):
+        assert not posicion_valida_colinearidad([self.centro, self.pos_lim_1, self.pos_lim_2])
         self.angulo = sektor_cir_culo.calcula_angulo_sektor(self.centro, self.pos_lim_1, self.pos_lim_2)
         self.pos_final_segmento_1 = pos_final_segmento_1 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_1, self.radio)
         self.pos_final_segmento_2 = pos_final_segmento_2 = sektor_cir_culo.genera_segmento_linea(self.centro, self.pos_lim_2, self.radio)
@@ -212,7 +452,13 @@ class sektor_cir_culo():
         
         self._inicializa_posiciones_polares()
         
-        logger_cagada.debug("las posiciones polares de {} {} son {} {}".format(self.segmento_sektor_1, self.segmento_sektor_2, self.pos_polar_seg_1, self.pos_polar_seg_2))
+        logger_cagada.debug("las posiciones polares de {} {} son {} {}".format(self.segmento_sektor_1, self.segmento_sektor_2, self.pos_pol_final_segmento_1, self.pos_pol_final_segmento_2))
+        house_of_pain_pinta_figura(self.circulo)
+        house_of_pain_pinta_figura(self.segmento_sektor_1)
+        house_of_pain_pinta_figura(self.segmento_sektor_2)
+        
+        self._calcula_caja_sektor()
+        self._determina_putos_tokados()
     
     def _inicializa_posiciones_polares(self):
         pos_polar_seg_1 = self.pos_pol_final_segmento_1
@@ -231,11 +477,12 @@ class sektor_cir_culo():
             if dif_angulos > np.pi:
                 angulo_1, angulo_2 = angulo_2, np.pi * 2 + angulo_1
                 self.normalizar_angulos = True
+            assert dif_angulos < np.pi
         
         pos_polar_seg_1[0] = angulo_1
         pos_polar_seg_2[0] = angulo_2
-        self.pos_polar_seg_1 = pos_polar_seg_1
-        self.pos_polar_seg_2 = pos_polar_seg_2
+        self.pos_pol_final_segmento_1 = pos_polar_seg_1
+        self.pos_pol_final_segmento_2 = pos_polar_seg_2
     
     @property
     def posiciones_finales_segmentos(self):
@@ -254,6 +501,8 @@ class sektor_cir_culo():
         idx_dimension = 0
         posiciones_potenciales_extremas = self.posiciones_finales_segmentos + [self.centro]
         
+        logger_cagada.debug("las pos extr pot {}".format(posiciones_potenciales_extremas))
+        
         if calcula_extremos_verticales:
             angulos_extremos = sektor_cir_culo.angulos_extremos_verticales
             idx_dimension = 0
@@ -262,10 +511,11 @@ class sektor_cir_culo():
             idx_dimension = 1
         
         pos_pol_extremas = map(lambda angulo:(angulo, self.radio), angulos_extremos)
+#        logger_cagada.debug("las pos pol extr {}".format(list(pos_pol_extremas)))
         
-        pos_pol_extremas_en_sektor = filter(self.posicion_polar_en_cuerda_sektor, pos_pol_extremas)
+        pos_pol_extremas_en_sektor = list(filter(self.posicion_polar_en_cuerda_sektor, pos_pol_extremas))
         
-        assert len(pos_pol_extremas_en_sektor) < 2
+        assert posicion_valida_colinearidad(list(map(self.posicion_polar_a_posicion_de_sektor, pos_pol_extremas_en_sektor)) + posiciones_potenciales_extremas) or len(pos_pol_extremas_en_sektor) < 2, "los pos pol extre en sektor son {}".format(list(map(self.posicion_polar_a_posicion_de_sektor, pos_pol_extremas_en_sektor)))
         
         if len(pos_pol_extremas_en_sektor):
             posiciones_potenciales_extremas.append(self.posicion_a_posicion_polar_de_sektor(pos_pol_extremas_en_sektor[0]))
@@ -282,15 +532,42 @@ class sektor_cir_culo():
         self.valores_x_abarcados = range(max(ceil(self.extremo_caja_vertical_min), 0), min(floor(self.extremo_caja_vertical_max), self.lim_x))
         self.valores_y_abarcados = range(max(ceil(self.extremo_caja_horizontal_min), 0), min(floor(self.extremo_caja_horizontal_max), self.lim_y))
     
+    def _determina_putos_tokados(self):
+        putos_intersextados = []
+        poligonos_tocados = set()
+        
+        for valor_x in self.valores_x_abarcados:
+            raya = LineString(((valor_x, self.centro[1] - self.radio), (valor_x, self.centro[1] + self.radio)))
+            intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
+            putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "x")
+            putos_intersextados += putos_en_intersex
+            
+        for valor_y in self.valores_y_abarcados:
+            raya = LineString(((self.centro[0] - self.radio, valor_y), (self.centro[0] + self.radio, valor_y)))
+            intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
+            putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "y")
+            putos_intersextados += putos_en_intersex
+        
+        for puto in putos_intersextados:
+            forma = self.mapa_puto_a_forma[puto]
+            poligonos_tocados.add(forma)
+            house_of_pain_pinta_figura(puto, ROJO)
+        
+        for poli in poligonos_tocados:
+            house_of_pain_pinta_figura(poli, AMARILLO)
+        
     def normaliza_posicion_polar(self, pos_pol):
+        logger_cagada.debug("normalizando {}".format(pos_pol))
         if self.normalizar_angulos:
             angulo_pol = pos_pol[0]
             if angulo_pol < 0:
                 angulo_pol = np.pi * 2 + angulo_pol
             pos_pol[0] = angulo_pol
+        return pos_pol
     
     def posicion_polar_dentro_de_sektor(self, pos_pol):
-        if self.pos_polar_seg_1[0] <= pos_pol[0] <= self.pos_polar_seg_2[0]:
+        logger_cagada.debug("compradano {} <= {} <= {}".format(self.pos_pol_final_segmento_1[0], pos_pol[0], self.pos_pol_final_segmento_2[0]))
+        if self.pos_pol_final_segmento_1[0] <= pos_pol[0] <= self.pos_pol_final_segmento_2[0]:
             return True
         else:
             return False
@@ -305,6 +582,7 @@ class sektor_cir_culo():
         return self.posicion_en_cuerda_sektor(puto_a_posicion(puto))
     
     def posicion_a_posicion_polar_de_sektor(self, posi):
+        logger_cagada.debug("sacando pos pol de {} con centro {}".format(posi, self.centro))
         return posicion_a_posicion_polar(self.centro, posi)
     
     def posicion_polar_a_posicion_de_sektor(self, pos_pol):
@@ -314,8 +592,13 @@ class sektor_cir_culo():
     def segmentos_sektor(self):
         return [self.segmento_sektor_1, self.segmento_sektor_2]
     
+    @property
+    def posiciones_de_segmentos_sektor(self):
+        return reduce(add, (map(lambda segmento:list(segmento.coords), self.segmentos_sektor)), [])
+    
     def valida_colinearidad(self, putos):
-        return posicion_valida_colinearidad(map(lambda puto:(puto.x, puto.y), self.segmentos_sektor + putos)) or any(map(lambda segmento:puto_valida_colinearidad(segmento, putos), self.segmentos_sektor))
+        logger_cagada.debug("colineadirdad d {} i {}".format(self.posiciones_de_segmentos_sektor, putos))
+        return posicion_valida_colinearidad(self.posiciones_de_segmentos_sektor + list(map(lambda puto:(puto.x, puto.y), putos))) or any(map(lambda segmento:puto_valida_colinearidad(segmento, putos), self.segmentos_sektor))
     
     def calcula_interseccion_con_arco_sektor(self, segmento):
         putos_intersex = []
@@ -326,7 +609,7 @@ class sektor_cir_culo():
             assert isinstance(intersex, LineString)
             
 #            putos_intersex = map(lambda pos_pol:Point(self.posicion_polar_a_posicion_de_sektor(pos_pol)), filter(lambda pos_pol:self.posicion_polar_en_cuerda_sektor(pos_pol), map(lambda posi:self.normaliza_posicion_polar(self.posicion_a_posicion_polar_de_sektor(posi)), list(intersex.coords))))
-            putos_intersex = map(Point, filter(caca_comun_composicion(self.posicion_a_posicion_polar_de_sektor, self.normaliza_posicion_polar, self.posicion_polar_en_cuerda_sektor) , list(intersex.coords)))
+            putos_intersex = list(map(Point, filter(caca_comun_composicion((self.posicion_a_posicion_polar_de_sektor, self.normaliza_posicion_polar, self.posicion_polar_en_cuerda_sektor)) , list(intersex.coords))))
             
 #            for posicion in list(intersex.coords):
 #                pos_pol = posicion_a_posicion_polar(self.centro, posicion)
@@ -338,6 +621,8 @@ class sektor_cir_culo():
             putos_intersex.append(intersex)
             assert self.puto_en_cuerda_sektor(intersex)
             puto_tangencial = True
+        
+        logger_cagada.debug("los putos d intersex con el arco {}".format(putos_intersex))
         
         assert self.valida_colinearidad(putos_intersex)
         
@@ -361,9 +646,13 @@ class sektor_cir_culo():
     def calcula_intersexiones_de_segmento_con_sektor(self, segmento):
         putos_intersexion = []
 
+        logger_cagada.debug("calculando intersex de {}".format(segmento))
         intersex_seg_sektor_1 = self.calcula_interseccion_con_segmento_de_linea(segmento, True)
         intersex_seg_sektor_2 = self.calcula_interseccion_con_segmento_de_linea(segmento, False)
         intersexs_arco, puto_tangencial = self.calcula_interseccion_con_arco_sektor(segmento)
+        logger_cagada.debug("intersex con sektor 1 {}".format(intersex_seg_sektor_1))
+        logger_cagada.debug("intersex con sektor 2 {}".format(intersex_seg_sektor_2))
+        logger_cagada.debug("intersex con arco {},{}".format(intersexs_arco, puto_tangencial))
         
         intersex_arco_cnt = len(intersexs_arco)
         if(intersex_arco_cnt == 2 or puto_tangencial):
@@ -437,7 +726,7 @@ def house_of_pain_crea_poligono_de_lineas(lineas):
     return poligono
 
     
-def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas):
+def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados):
     pila = [celda_inicial]
     duenio = celda_inicial
     lineas_poligono = set()
@@ -478,6 +767,7 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
         mapa_linea_a_forma[linea] = duenio
         for puto in list(linea.coords):
             mapa_puto_a_forma[puto].append(duenio)
+            putos_ordenados.insertar(puto)
     
     poligono = house_of_pain_crea_poligono_de_lineas(lineas_poligono)
     
@@ -489,37 +779,54 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     logger_cagada.debug("de celda {} se generaro poligono {} de cirds {}".format(celda_inicial, poligono, list(poligono.exterior.coords)))
     logger_cagada.debug("cekdas invol {}".format(sorted(list(celdas_ya_visitadas_int))))
     
+    house_of_pain_pinta_figura(poligono)
+    
+def house_of_pain_pinta_figura(figura, color=GRAY):
     global cont_figs
     global fig
     global ax
-    poly = mapping(poligono)
-    patch = PolygonPatch(poly, fc=BLUE, ec=GRAY, alpha=0.5, zorder=2)
-    ax.add_patch(patch)
+    logger_cagada.debug("intentando pintar {}".format(figura))
+    if isinstance(figura, Polygon):
+        poly = mapping(figura)
+#    poly = {"type": "Polygon", "coordinates": mapping(figura)["coordinates"]}
+        patch = PolygonPatch(poly, fc=BLUE, ec=color, alpha=0.5, zorder=2)
+        ax.add_patch(patch)
+    else:
+        if isinstance(figura, LineString):
+            x, y = figura.xy
+            ax.plot(x, y, color=VERDE, linewidth=3, solid_capstyle='round', zorder=1)
     ax.set_xlim(xmin=-10, xmax=10)
     ax.set_ylim(ymin=-10, ymax=10)
     cont_figs += 1
 
                     
-def house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono):
+def house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados):
     celdas_ya_visitadas = set()
     for i, fila in enumerate(matrix[1:-1], 1):
         logger_cagada.debug("fila es {}".format(fila))
         for j, cerda in enumerate(fila[1:-1], 1):
             celda_act = (i, j)
             if(cerda == "#" and celda_act not in celdas_ya_visitadas):
-                house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_act, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas)
+                house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_act, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados)
 
                 
-def house_of_pain_core(matrix):
+def house_of_pain_core(matrix, pos_inicio):
     mapa_puto_a_forma = defaultdict(lambda:[])
     mapa_linea_a_forma = {}
     mapa_celda_a_poligono = {}
+    putos_ordenados = conjunto_ordenado_en_dimensiones([conjunto_ordenado_dimension("x", None), conjunto_ordenado_dimension("y", lambda posi:(posi[1], posi[0]))])
     
+    lim_x = len(matrix)
+    lim_y = len(matrix[0])
+   
     global fig
     global ax
     fig = pyplot.figure(1, dpi=180)
     ax = fig.add_subplot(121)
-    house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono)
+    house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados)
+    
+    sektor = sektor_cir_culo(pos_inicio, 8, (pos_inicio[0], 0), (pos_inicio[0], lim_y), lim_x, lim_y, putos_ordenados, mapa_puto_a_forma)
+    
     pyplot.show()
 
 
@@ -541,12 +848,19 @@ def house_of_pain_main():
         alto, ancho, limite_rayo_vallecano = caca_comun_lee_linea_como_monton_de_numeros()
         matrix = []
         matrix.append("%" * (ancho + 2))
-        for _ in range(alto):
-            matrix.append("%" + stdin.readline().strip() + "%")
+        pos_inicio = None
+        for i in range(alto):
+            linea = stdin.readline().strip() 
+            if "X" in linea:
+                j = linea.index("X")
+                pos_inicio = (i + 1, j + 1)
+            matrix.append("%" + linea + "%")
         matrix.append("%" * (ancho + 2))
         
+        assert pos_inicio
         logger_cagada.debug("la matrix leida\n{}".format(caca_comun_imprime_matrix(matrix)))
-        house_of_pain_core(matrix)
+        logger_cagada.debug("la pos ini {}".format(pos_inicio))
+        house_of_pain_core(matrix, pos_inicio)
 
 
 if __name__ == '__main__':
