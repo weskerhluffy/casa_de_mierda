@@ -68,7 +68,7 @@ class Frozen(object):
         else: raise Exception("Can't modify frozen object {0}".format(self._value))
     
     def __repr__(self):
-        return "i si acemos un acaca "+self._value.__str__()
+        return "i si acemos un acaca " + self._value.__str__()
 
 # XXX: https://stackoverflow.com/questions/3942303/how-does-a-python-set-check-if-two-objects-are-equal-what-methods-does-an-o
     def __hash__(self):
@@ -443,7 +443,7 @@ class sektor_cir_culo():
     angulos_extremos_verticales = [np.pi / 2, -np.pi / 2]
     angulos_extremos_horizontales = [0, np.pi]
     
-    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y, putos_ordenados, mapa_puto_a_forma):
+    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma):
         self.centro = centro
         self.radio = radio
         self.pos_lim_1 = min(pos_lim_1, pos_lim_2)
@@ -451,7 +451,7 @@ class sektor_cir_culo():
         self.lim_x = lim_x
         self.lim_y = lim_y
         self.putos_ordenados = putos_ordenados
-        self.mapa_puto_a_forma = mapa_puto_a_forma
+        self.mapa_posicion_a_forma = mapa_posicion_a_forma
         self.angulo = None
         self.segmento_sektor_1 = None
         self.segmento_sektor_2 = None
@@ -618,11 +618,11 @@ class sektor_cir_culo():
             putos_intersextados += putos_en_intersex
         
         for puto in putos_intersextados:
-            formas = self.mapa_puto_a_forma[puto]
+            formas = self.mapa_posicion_a_forma[puto]
             for forma in formas:
                 logger_cagada.debug("de puto {} sale caca {}".format(puto, forma))
                 poligonos_tocados.add(forma)
-            house_of_pain_pinta_figura(puto, ROJO)
+            house_of_pain_pinta_figura(Point(puto), ROJO)
         
         for poli in poligonos_tocados:
             house_of_pain_pinta_figura(poli, AMARILLO)
@@ -803,7 +803,7 @@ def house_of_pain_crea_poligono_de_lineas(lineas):
     return Frozen(poligono)
 
     
-def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados):
+def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados):
     pila = [celda_inicial]
     duenio = celda_inicial
     lineas_poligono = set()
@@ -846,7 +846,7 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     for linea in list(lineas_poligono):
         mapa_linea_a_forma[linea] = poligono
         for puto in list(linea.coords):
-            mapa_puto_a_forma[puto].append(poligono)
+            mapa_posicion_a_forma[puto].append(poligono)
             putos_ordenados.insertar(puto)
     
     
@@ -877,24 +877,29 @@ def house_of_pain_pinta_figura(figura, color=GRAY):
         if isinstance(figura, LineString):
             figura = rotate(figura, -90, origin=(0, 0))
             x, y = figura.xy
-            ax.plot(x, y, color=VERDE, linewidth=1, solid_capstyle='round', zorder=1)
+            ax.plot(x, y, color=color, linewidth=1, solid_capstyle='round', zorder=1)
+        else:
+            if isinstance(figura, Point):
+                figura = rotate(figura, -90, origin=(0, 0))
+                x, y = figura.xy
+                ax.plot(x, y, color=color, marker='o', markersize=3)
     ax.set_xlim(xmin=-10, xmax=10)
     ax.set_ylim(ymin=-10, ymax=10)
     cont_figs += 1
 
                     
-def house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados):
+def house_of_pain_genera_poligonos_y_putos(matrix, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados):
     celdas_ya_visitadas = set()
     for i, fila in enumerate(matrix[1:-1], 1):
         logger_cagada.debug("fila es {}".format(fila))
         for j, cerda in enumerate(fila[1:-1], 1):
             celda_act = (i, j)
             if(cerda == "#" and celda_act not in celdas_ya_visitadas):
-                house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_act, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados)
+                house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_act, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados)
 
                 
 def house_of_pain_core(matrix, pos_inicio):
-    mapa_puto_a_forma = defaultdict(lambda:[])
+    mapa_posicion_a_forma = defaultdict(lambda:[])
     mapa_linea_a_forma = {}
     mapa_celda_a_poligono = {}
     putos_ordenados = conjunto_ordenado_en_dimensiones([conjunto_ordenado_dimension("x", None), conjunto_ordenado_dimension("y", lambda posi:(posi[1], posi[0]))])
@@ -906,9 +911,9 @@ def house_of_pain_core(matrix, pos_inicio):
     global ax
     fig = pyplot.figure(1, dpi=180)
     ax = fig.add_subplot(121)
-    house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados)
+    house_of_pain_genera_poligonos_y_putos(matrix, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados)
     
-    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_puto_a_forma)
+    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma)
     
     pyplot.show()
 
