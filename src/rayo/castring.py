@@ -27,7 +27,10 @@ from shapely.geometry.collection import GeometryCollection
 from functional import compose, partial
 from functools import reduce
 from bisect import bisect_left, bisect_right
-from operator import add
+from operator import add, sub
+from asyncio.log import logger
+from numpy import degrees
+from shapely.affinity import rotate
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -51,7 +54,7 @@ ax = None
 class Frozen(object):
 
     def __init__(self, value):
-        assert isinstance(value, LineString), "{} no es la instancia esperada".format(type(value))
+        assert isinstance(value, LineString) or isinstance(value, Polygon), "{} no es la instancia esperada".format(type(value))
         self._value = value
 
     def __getattribute__(self, name):
@@ -65,7 +68,7 @@ class Frozen(object):
         else: raise Exception("Can't modify frozen object {0}".format(self._value))
     
     def __repr__(self):
-        return self._value.__str__()
+        return "i si acemos un acaca "+self._value.__str__()
 
 # XXX: https://stackoverflow.com/questions/3942303/how-does-a-python-set-check-if-two-objects-are-equal-what-methods-does-an-o
     def __hash__(self):
@@ -330,9 +333,10 @@ def posicion_resta(pos_1, pos_2):
 def posicion_a_posicion_polar(centro, posi):
     logger_cagada.debug("calculando pos pol de {}".format(posi))
     distancias = posicion_resta(posi, centro)
+    logger_cagada.debug("las distancias {}".format(distancias))
     angulo = arctan2(distancias[0], distancias[1])
     radio = sqrt(pow(distancias[0], 2) + pow(distancias[1], 2))
-    logger_cagada.debug("pos pol es {}".format([angulo, radio]))
+    logger_cagada.debug("pos pol es {}".format([degrees(angulo), radio]))
     return [angulo, radio]
 
 
@@ -374,6 +378,65 @@ def caca_comun_composicion(functiones):
     caca = partial(reduce, compose)(reversed(functiones))
     logger_cagada.debug("se regresa {}".format(caca))
     return caca
+
+def posicion_chicharronera_intersexion(dx, dy, dr, D, raiz_discriminante, calcular_x):
+  if calcular_x:
+    term_var_1 = D * dy
+    term_var_2 = dx * (-1 if dy < 0 else 1)
+  else:
+    term_var_1 = -D * dx
+    term_var_2 = abs(dy)
+  
+  formula = lambda opera:(opera(term_var_1, term_var_2 * raiz_discriminante) / pow(dr, 2))
+  res1, res2 = formula(add), formula(sub)
+  return res1, res2
+
+# XXX: http://mathworld.wolfram.com/Circle-LineIntersection.html
+def posicion_calcula_intersexion_segmento_con_cir_culo(extremo_segmento_1, extremo_segmento_2, centro, radio):
+    logger_cagada.debug("sacando intersex de {}-{} con circ {} r {}".format(extremo_segmento_1, extremo_segmento_2, centro, radio))
+    ext_seg_1 = posicion_resta(extremo_segmento_1, centro)
+    ext_seg_2 = posicion_resta(extremo_segmento_2, centro)
+    logger_cagada.debug("segmento normalizado {}-{}".format(ext_seg_1, ext_seg_2))
+    x1 = ext_seg_1[0]
+    y1 = ext_seg_1[1]
+    x2 = ext_seg_2[0]
+    y2 = ext_seg_2[1]
+    dx = x2 - x1
+    dy = y2 - y1
+    logger_cagada.debug("distancias x {} y {}".format(dx, dy))
+    dr = sqrt(pow(dx, 2) + pow(dy, 2))
+    logger_cagada.debug("dr {}".format(dr))
+    D = x1 * y2 - x2 * y1
+    discriminante = pow(radio, 2) * pow(dr, 2) - pow(D, 2)
+    raiz_discriminante = sqrt(discriminante)
+    intersexiones = None
+    if discriminante >= 0:
+        interx = posicion_chicharronera_intersexion(dx, dy, dr, D, raiz_discriminante, True)
+        intery = posicion_chicharronera_intersexion(dx, dy, dr, D, raiz_discriminante, False)
+        interx = list(map(lambda x:x + centro[0], interx))
+        intery = list(map(lambda y:y + centro[1], intery))
+        if discriminante == 0:
+            assert interx[0] == interx[1]
+            assert intery[0] == intery[1]
+            interx = interx[0]
+            intery = intery[0]
+        intersexiones = list(zip(interx, intery))
+
+    logger_cagada.debug("las intersex son {}".format(intersexiones))
+    return intersexiones
+
+def puto_intersexion_cir_culo_segmento(segmento, pos_centro, radio):
+    intersex = None
+    pos_seg = list(segmento.coords)
+    pos_intersex = posicion_calcula_intersexion_segmento_con_cir_culo(pos_seg[0], pos_seg[1], pos_centro, radio)
+    if pos_intersex is not None:
+        if len(pos_intersex) == 1:
+            intersex = Point(pos_intersex[0])
+        else:
+            assert len(pos_intersex) == 2
+            intersex = LineString(map(Point, pos_intersex))
+
+    return intersex
 
 class sektor_cir_culo():
 
@@ -448,7 +511,7 @@ class sektor_cir_culo():
         self.segmento_sektor_1 = LineString([Point(self.centro), Point(pos_final_segmento_1)])
         self.segmento_sektor_2 = LineString(map(Point, [self.centro, pos_final_segmento_2]))
         
-        self.circulo = Point(self.centro).buffer(self.radio)
+        self.circulo = Point(self.centro).buffer(self.radio, 3600)
         
         self._inicializa_posiciones_polares()
         
@@ -528,29 +591,37 @@ class sektor_cir_culo():
     def _calcula_caja_sektor(self):
         self.extremo_caja_vertical_min, self.extremo_caja_vertical_max = self._calcula_extremos_caja(True)
         self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max = self._calcula_extremos_caja(False)
+        logger_cagada.debug("los extremos v {},{} h {},{}".format(self.extremo_caja_vertical_min, self.extremo_caja_vertical_max, self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max))
+        logger_cagada.debug("lim x {} y {}".format(self.lim_x, self.lim_y))
         
-        self.valores_x_abarcados = range(max(ceil(self.extremo_caja_vertical_min), 0), min(floor(self.extremo_caja_vertical_max), self.lim_x))
-        self.valores_y_abarcados = range(max(ceil(self.extremo_caja_horizontal_min), 0), min(floor(self.extremo_caja_horizontal_max), self.lim_y))
+        self.valores_x_abarcados = range(max(ceil(self.extremo_caja_vertical_min), 2), min(ceil(self.extremo_caja_vertical_max), self.lim_x - 1))
+        self.valores_y_abarcados = range(max(ceil(self.extremo_caja_horizontal_min), 2), min(ceil(self.extremo_caja_horizontal_max), self.lim_y - 1))
+        
+        logger_cagada.debug("valors x {} y {}".format(self.valores_x_abarcados, self.valores_y_abarcados))
     
     def _determina_putos_tokados(self):
         putos_intersextados = []
         poligonos_tocados = set()
         
         for valor_x in self.valores_x_abarcados:
+            logger_cagada.debug("en valor x {}".format(valor_x))
             raya = LineString(((valor_x, self.centro[1] - self.radio), (valor_x, self.centro[1] + self.radio)))
             intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
             putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "x")
             putos_intersextados += putos_en_intersex
             
         for valor_y in self.valores_y_abarcados:
+            logger_cagada.debug("en valor y {}".format(valor_y))
             raya = LineString(((self.centro[0] - self.radio, valor_y), (self.centro[0] + self.radio, valor_y)))
             intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
             putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "y")
             putos_intersextados += putos_en_intersex
         
         for puto in putos_intersextados:
-            forma = self.mapa_puto_a_forma[puto]
-            poligonos_tocados.add(forma)
+            formas = self.mapa_puto_a_forma[puto]
+            for forma in formas:
+                logger_cagada.debug("de puto {} sale caca {}".format(puto, forma))
+                poligonos_tocados.add(forma)
             house_of_pain_pinta_figura(puto, ROJO)
         
         for poli in poligonos_tocados:
@@ -568,12 +639,13 @@ class sektor_cir_culo():
     def posicion_polar_dentro_de_sektor(self, pos_pol):
         logger_cagada.debug("compradano {} <= {} <= {}".format(self.pos_pol_final_segmento_1[0], pos_pol[0], self.pos_pol_final_segmento_2[0]))
         if self.pos_pol_final_segmento_1[0] <= pos_pol[0] <= self.pos_pol_final_segmento_2[0]:
+            logger_cagada.debug("si sta dentro")
             return True
         else:
             return False
     
     def posicion_polar_en_cuerda_sektor(self, pos_pol):
-        return self.posicion_polar_dentro_de_sektor(pos_pol) and pos_pol[1] == self.radio
+        return self.posicion_polar_dentro_de_sektor(pos_pol) and abs(pos_pol[1] - self.radio) < 1e-8
     
     def posicion_en_cuerda_sektor(self, posi):
         return self.posicion_polar_en_cuerda_sektor(self.posicion_a_posicion_polar_de_sektor(posi))
@@ -597,13 +669,16 @@ class sektor_cir_culo():
         return reduce(add, (map(lambda segmento:list(segmento.coords), self.segmentos_sektor)), [])
     
     def valida_colinearidad(self, putos):
-        logger_cagada.debug("colineadirdad d {} i {}".format(self.posiciones_de_segmentos_sektor, putos))
-        return posicion_valida_colinearidad(self.posiciones_de_segmentos_sektor + list(map(lambda puto:(puto.x, puto.y), putos))) or any(map(lambda segmento:puto_valida_colinearidad(segmento, putos), self.segmentos_sektor))
+        logger_cagada.debug("colineadirdad d  {}".format(putos))
+        return posicion_valida_colinearidad(list(map(lambda puto:(puto.x, puto.y), putos))) or any(map(lambda segmento:puto_valida_colinearidad(segmento, putos), self.segmentos_sektor))
     
     def calcula_interseccion_con_arco_sektor(self, segmento):
         putos_intersex = []
         puto_tangencial = False
-        intersex = self.circulo.intersection(segmento)
+        logger_cagada.debug("calculando intersex de circ centro {} radio {} con seg {}".format(self.centro, self.radio, segmento))
+ #       intersex = self.circulo.intersection(segmento)
+        intersex = puto_intersexion_cir_culo_segmento(segmento, self.centro, self.radio)
+        logger_cagada.debug("intersex es {}".format(intersex))
         assert not isinstance(intersex, GeometryCollection)
         if not isinstance(intersex, Point):
             assert isinstance(intersex, LineString)
@@ -624,7 +699,7 @@ class sektor_cir_culo():
         
         logger_cagada.debug("los putos d intersex con el arco {}".format(putos_intersex))
         
-        assert self.valida_colinearidad(putos_intersex)
+        assert not putos_intersex or self.valida_colinearidad(putos_intersex)
         
         return putos_intersex, puto_tangencial
     
@@ -634,7 +709,9 @@ class sektor_cir_culo():
         else:
             segmento_sektor = self.segmento_sektor_2
         
+        logger_cagada.debug("calculando intersex de seg {} con seg {}".format(segmento, segmento_sektor))
         intersex = segmento.intersection(segmento_sektor)
+        logger_cagada.debug("la intersex es {}".format(intersex))
         
         assert (not isinstance(intersex, LineString))
         
@@ -675,7 +752,7 @@ class sektor_cir_culo():
         
         assert (puto_tangencial and len(putos_intersexion) == 1) or (not puto_tangencial and len(putos_intersexion) == 2)
         
-        return map(puto_a_posicion, putos_intersexion)
+        return list(map(puto_a_posicion, putos_intersexion))
     
     def __repr__(self):
         return "centro {} segmentos sektor {} y {}".format(self.centro, self.segmento_sektor_1, self.segmento_sektor_2)
@@ -723,7 +800,7 @@ def house_of_pain_crea_poligono_de_lineas(lineas):
 # XXX: https://gis.stackexchange.com/questions/72306/does-shapely-within-function-identify-inner-holes
     poligono = Polygon(contorno_externo, contornos_internos)
     assert isinstance(poligono, Polygon)
-    return poligono
+    return Frozen(poligono)
 
     
 def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados):
@@ -763,13 +840,15 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
                 celdas_ya_visitadas_int.add(celda_aledana)
     
     logger_cagada.debug("las lineas del pol {}".format(lineas_poligono))
-    for linea in list(lineas_poligono):
-        mapa_linea_a_forma[linea] = duenio
-        for puto in list(linea.coords):
-            mapa_puto_a_forma[puto].append(duenio)
-            putos_ordenados.insertar(puto)
     
     poligono = house_of_pain_crea_poligono_de_lineas(lineas_poligono)
+    
+    for linea in list(lineas_poligono):
+        mapa_linea_a_forma[linea] = poligono
+        for puto in list(linea.coords):
+            mapa_puto_a_forma[puto].append(poligono)
+            putos_ordenados.insertar(puto)
+    
     
     for celda_visitada in list(celdas_ya_visitadas_int):
         mapa_celda_a_poligono[celda_visitada] = poligono
@@ -785,16 +864,20 @@ def house_of_pain_pinta_figura(figura, color=GRAY):
     global cont_figs
     global fig
     global ax
+    if isinstance(figura, Frozen):
+        figura = figura._value
     logger_cagada.debug("intentando pintar {}".format(figura))
     if isinstance(figura, Polygon):
+        figura = rotate(figura, -90, origin=(0, 0))
         poly = mapping(figura)
 #    poly = {"type": "Polygon", "coordinates": mapping(figura)["coordinates"]}
-        patch = PolygonPatch(poly, fc=BLUE, ec=color, alpha=0.5, zorder=2)
+        patch = PolygonPatch(poly, fc=color, ec=BLUE, alpha=0.5, zorder=2)
         ax.add_patch(patch)
     else:
         if isinstance(figura, LineString):
+            figura = rotate(figura, -90, origin=(0, 0))
             x, y = figura.xy
-            ax.plot(x, y, color=VERDE, linewidth=3, solid_capstyle='round', zorder=1)
+            ax.plot(x, y, color=VERDE, linewidth=1, solid_capstyle='round', zorder=1)
     ax.set_xlim(xmin=-10, xmax=10)
     ax.set_ylim(ymin=-10, ymax=10)
     cont_figs += 1
@@ -825,7 +908,7 @@ def house_of_pain_core(matrix, pos_inicio):
     ax = fig.add_subplot(121)
     house_of_pain_genera_poligonos_y_putos(matrix, mapa_puto_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados)
     
-    sektor = sektor_cir_culo(pos_inicio, 8, (pos_inicio[0], 0), (pos_inicio[0], lim_y), lim_x, lim_y, putos_ordenados, mapa_puto_a_forma)
+    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_puto_a_forma)
     
     pyplot.show()
 
@@ -853,7 +936,7 @@ def house_of_pain_main():
             linea = stdin.readline().strip() 
             if "X" in linea:
                 j = linea.index("X")
-                pos_inicio = (i + 1, j + 1)
+                pos_inicio = (i + 1.5, j + 1.5)
             matrix.append("%" + linea + "%")
         matrix.append("%" * (ancho + 2))
         
