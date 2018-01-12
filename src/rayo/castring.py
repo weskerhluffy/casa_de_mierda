@@ -288,11 +288,18 @@ class SortedCollection(object):
         raise ValueError('No item found with key above: %r' % (k,))
     
     def encuentra_interfalo(self, llave_inicial, llave_final):
-        assert self._key(llave_inicial) <= self._key(llave_final)
-        i = bisect_left(self._keys, llave_inicial)
+        k_ini = self._key(llave_inicial)
+        k_fin = self._key(llave_final)
+        assert k_ini <= k_fin
+        i = bisect_left(self._keys, k_ini)
+        logger_cagada.debug("todo el arreglo {}".format(self._keys))
+        logger_cagada.debug("todo el arreglo {}".format(self._items))
+        logger_cagada.debug("llave ini {} llave fin {}".format(k_ini, k_fin))
+        logger_cagada.debug("pos ini {}".format(i))
         valores = []
         if i != len(self):
-            j = bisect_right(self._keys, llave_final)
+            j = bisect_right(self._keys, k_fin)
+            logger_cagada.debug("pos fin {} lo q ai {}".format(j, self._items[j - 1]))
             assert i <= j
             valores = self._items[i:j]
         return valores
@@ -320,6 +327,7 @@ class conjunto_ordenado_en_dimensiones():
     def encuentra_interfalo(self, valor_inicial, valor_final, idx_dimension):
         conjunto = self.conjuntos_ordenados[idx_dimension]
         valores = conjunto.encuentra_interfalo(valor_inicial, valor_final)
+        logger_cagada.debug("de llave {} se consigio ladim {} i los res {}".format(idx_dimension, conjunto.key, valores))
         return valores
 
 def posicion_suma(pos_1, pos_2):
@@ -607,14 +615,18 @@ class sektor_cir_culo():
             logger_cagada.debug("en valor x {}".format(valor_x))
             raya = LineString(((valor_x, self.centro[1] - self.radio), (valor_x, self.centro[1] + self.radio)))
             intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
+            logger_cagada.debug("las intersex {}".format(intersexs))
             putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "x")
+            logger_cagada.debug("los putos enc {}".format(putos_en_intersex))
             putos_intersextados += putos_en_intersex
             
         for valor_y in self.valores_y_abarcados:
             logger_cagada.debug("en valor y {}".format(valor_y))
             raya = LineString(((self.centro[0] - self.radio, valor_y), (self.centro[0] + self.radio, valor_y)))
             intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
+            logger_cagada.debug("las intersex {}".format(intersexs))
             putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "y")
+            logger_cagada.debug("los putos enc {}".format(putos_en_intersex))
             putos_intersextados += putos_en_intersex
         
         for puto in putos_intersextados:
@@ -880,6 +892,7 @@ def house_of_pain_pinta_figura(figura, color=GRAY):
             ax.plot(x, y, color=color, linewidth=1, solid_capstyle='round', zorder=1)
         else:
             if isinstance(figura, Point):
+# XXX: https://stackoverflow.com/questions/27779845/how-to-plot-one-single-data-point
                 figura = rotate(figura, -90, origin=(0, 0))
                 x, y = figura.xy
                 ax.plot(x, y, color=color, marker='o', markersize=3)
