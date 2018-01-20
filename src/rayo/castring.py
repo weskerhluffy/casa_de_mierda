@@ -31,6 +31,7 @@ from operator import add, sub
 from asyncio.log import logger
 from numpy import degrees
 from shapely.affinity import rotate
+from itertools import chain
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -43,6 +44,7 @@ GRAY = '#999999'
 ROJO = "#FC2C00"
 VERDE = "#00ACFC"
 AMARILLO = "#F7DC6F"
+NARANJA = "#FFA500"
 
 cont_figs = 1
 fig = None
@@ -382,9 +384,9 @@ def puto_valida_colinearidad(segmento, putos):
 
 # XXX: https://stackoverflow.com/questions/16739290/composing-functions-in-python
 def caca_comun_composicion(functiones):
-    logger_cagada.debug("compocaca")
+#    logger_cagada.debug("compocaca")
     caca = partial(reduce, compose)(reversed(functiones))
-    logger_cagada.debug("se regresa {}".format(caca))
+#    logger_cagada.debug("se regresa {}".format(caca))
     return caca
 
 def posicion_chicharronera_intersexion(dx, dy, dr, D, raiz_discriminante, calcular_x):
@@ -446,12 +448,48 @@ def puto_intersexion_cir_culo_segmento(segmento, pos_centro, radio):
 
     return intersex
 
+def caca_comun_redondea_intervalo_a_enteros(inter_1, inter_2, hacia_dentro):
+    limite_menor, limite_mayor = sorted([inter_1, inter_2])
+    
+    limites = [limite_menor, limite_mayor]
+    # XXX: https://stackoverflow.com/questions/44116557/how-to-extend-concatenate-two-iterators-in-python
+    limites_posibles = list(sorted(chain(map(ceil, limites) , map(floor, limites))))
+    
+    if hacia_dentro:
+        idx_lim_men = 1
+        idx_lim_may = 2
+    else:
+        idx_lim_men = 0
+        idx_lim_may = 3
+    
+#    logger_cagada.debug("intervalo {} se redondeo a {}".format([inter_1, inter_2], [limites_posibles[idx_lim_men], limites_posibles[idx_lim_may]]))
+    
+    return limites_posibles[idx_lim_men], limites_posibles[idx_lim_may]
+    
+def caca_comun_topa_intervalo_a_limites(inter, limite_1, limite_2):
+        limite_1, limite_2 = sorted([limite_1, limite_2])
+        filtro_pasa_banda = caca_comun_composicion([partial(max, limite_1), partial(min, limite_2)])
+        intervalo = [inter[0], inter[1]]
+        
+        intervalo_topadp = list(map(filtro_pasa_banda, intervalo))
+        logger_cagada.debug("intervalo {} se topo a {}".format(inter, intervalo_topadp))
+        return intervalo_topadp
+
+def caca_comun_redondea_intervalo_a_enteros_topado(inter_1, inter_2, limite_1, limite_2, hacia_dentro):
+    caca = caca_comun_composicion([partial(caca_comun_redondea_intervalo_a_enteros, hacia_dentro=hacia_dentro), partial(caca_comun_topa_intervalo_a_limites, limite_1=limite_1, limite_2=limite_2)])
+#    caca = partial(caca_comun_redondea_intervalo_a_enteros, hacia_dentro=hacia_dentro)
+#    caca = partial(caca_comun_topa_intervalo_a_limites, limite_1=limite_1, limite_2=limite_2)
+#    logger_cagada.debug("pero q mierda {}".format(caca))
+    inter_1_ent, inter_2_ent = caca(inter_1=inter_1, inter_2=inter_2)
+    return inter_1_ent, inter_2_ent
+    
+
 class sektor_cir_culo():
 
     angulos_extremos_verticales = [np.pi / 2, -np.pi / 2]
     angulos_extremos_horizontales = [0, np.pi]
     
-    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma):
+    def __init__(self, centro, radio, pos_lim_1, pos_lim_2, lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono):
         self.centro = centro
         self.radio = radio
         self.pos_lim_1 = min(pos_lim_1, pos_lim_2)
@@ -460,6 +498,7 @@ class sektor_cir_culo():
         self.lim_y = lim_y
         self.putos_ordenados = putos_ordenados
         self.mapa_posicion_a_forma = mapa_posicion_a_forma
+        self.mapa_celda_a_poligono = mapa_celda_a_poligono
         self.angulo = None
         self.segmento_sektor_1 = None
         self.segmento_sektor_2 = None
@@ -529,7 +568,7 @@ class sektor_cir_culo():
         house_of_pain_pinta_figura(self.segmento_sektor_2)
         
         self._calcula_caja_sektor()
-        self._determina_putos_tokados()
+        self._determina_formas_tokadas()
     
     def _inicializa_posiciones_polares(self):
         pos_polar_seg_1 = self.pos_pol_final_segmento_1
@@ -595,39 +634,89 @@ class sektor_cir_culo():
         limite_min = min(posiciones_potenciales_extremas, key=lambda posi:posi[idx_dimension])[idx_dimension]
         
         return limite_min, limite_max
-
+    
+    def _calcula_limites_enteros_topados_por_caja_sektor(self, limite_1, limite_2, para_x, hacia_dentro):
+        if hacia_dentro:
+            offset = 2
+        else:
+            offset = 1
+        if para_x:
+            limite_superior_dim_var = self.lim_x - offset
+        else:
+            limite_superior_dim_var = self.lim_y - offset
+        
+        return caca_comun_redondea_intervalo_a_enteros_topado(limite_1, limite_2, offset, limite_superior_dim_var, hacia_dentro)
+    
     def _calcula_caja_sektor(self):
-        self.extremo_caja_vertical_min, self.extremo_caja_vertical_max = self._calcula_extremos_caja(True)
-        self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max = self._calcula_extremos_caja(False)
+        extremos_caja_vertical = self._calcula_extremos_caja(True)
+        extremos_caja_horizontal = self._calcula_extremos_caja(False)
+        self.extremo_caja_vertical_min, self.extremo_caja_vertical_max = extremos_caja_vertical
+        self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max = extremos_caja_horizontal
         logger_cagada.debug("los extremos v {},{} h {},{}".format(self.extremo_caja_vertical_min, self.extremo_caja_vertical_max, self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max))
         logger_cagada.debug("lim x {} y {}".format(self.lim_x, self.lim_y))
         
-        self.valores_x_abarcados = range(max(ceil(self.extremo_caja_vertical_min), 2), min(ceil(self.extremo_caja_vertical_max), self.lim_x - 1))
-        self.valores_y_abarcados = range(max(ceil(self.extremo_caja_horizontal_min), 2), min(ceil(self.extremo_caja_horizontal_max), self.lim_y - 1))
+        limites_x = list(sorted(self._calcula_limites_enteros_topados_por_caja_sektor(extremos_caja_vertical[0], extremos_caja_vertical[1], True, True)))
+        limites_y = list(sorted(self._calcula_limites_enteros_topados_por_caja_sektor(extremos_caja_horizontal[0], extremos_caja_horizontal[1], False, True)))
+        limites_x[1] += 1
+        limites_y[1] += 1
+        self.valores_x_abarcados = range(*limites_x)
+        self.valores_y_abarcados = range(*limites_y)
         
         logger_cagada.debug("valors x {} y {}".format(self.valores_x_abarcados, self.valores_y_abarcados))
     
-    def _determina_putos_tokados(self):
+    def _determina_celdas_tokadas_por_caja(self):
+        celdas_tokadas = []
+        limites_valores_x = self._calcula_limites_enteros_topados_por_caja_sektor(self.extremo_caja_vertical_min, self.extremo_caja_vertical_max, True , False)
+        limites_valores_y = self._calcula_limites_enteros_topados_por_caja_sektor(self.extremo_caja_horizontal_min, self.extremo_caja_horizontal_max, False, False)
+        logger_cagada.debug("los limites de la caja son {} {}".format(limites_valores_x, limites_valores_y))
+        
+        for valor_abarcado_x in range(limites_valores_x[0], limites_valores_x[1]):
+            for valor_abarcado_y in range(limites_valores_y[0], limites_valores_y[1]):
+                celda = [float(valor_abarcado_x), float(valor_abarcado_y)]
+                celdas_tokadas.append(tuple(celda))
+                
+        return celdas_tokadas
+    
+    def _determina_putos_celdas_tokados(self, para_x):
+        putos_intersextados = []
+        if para_x:
+            valores_abarcados = self.valores_x_abarcados
+            idx_dim_fija = 0
+            idx_dim_var = 1
+            dim_a_buscar = "x"
+        else:
+            valores_abarcados = self.valores_y_abarcados
+            idx_dim_fija = 1
+            idx_dim_var = 0
+            dim_a_buscar = "y"
+        
+        for valor in valores_abarcados:
+            logger_cagada.debug("en valor {}".format(valor))
+            posi_inicio_raya = [0, 0]
+            posi_fin_raya = [0, 0]
+            posi_inicio_raya[idx_dim_fija] = posi_fin_raya[idx_dim_fija] = valor
+            posi_inicio_raya[idx_dim_var] = self.centro[1] - self.radio
+            posi_fin_raya[idx_dim_var] = self.centro[1] + self.radio
+            raya = LineString((posi_inicio_raya, posi_fin_raya))
+            intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
+            logger_cagada.debug("las intersex {}".format(intersexs))
+            putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], dim_a_buscar)
+            logger_cagada.debug("los putos enc {}".format(putos_en_intersex))
+            putos_intersextados += putos_en_intersex
+        
+        return putos_intersextados
+    
+    def _determina_formas_tokadas(self):
         putos_intersextados = []
         poligonos_tocados = set()
+        celdas_tokadas = set()
         
-        for valor_x in self.valores_x_abarcados:
-            logger_cagada.debug("en valor x {}".format(valor_x))
-            raya = LineString(((valor_x, self.centro[1] - self.radio), (valor_x, self.centro[1] + self.radio)))
-            intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
-            logger_cagada.debug("las intersex {}".format(intersexs))
-            putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "x")
-            logger_cagada.debug("los putos enc {}".format(putos_en_intersex))
-            putos_intersextados += putos_en_intersex
-            
-        for valor_y in self.valores_y_abarcados:
-            logger_cagada.debug("en valor y {}".format(valor_y))
-            raya = LineString(((self.centro[0] - self.radio, valor_y), (self.centro[0] + self.radio, valor_y)))
-            intersexs = self.calcula_intersexiones_de_segmento_con_sektor(raya)
-            logger_cagada.debug("las intersex {}".format(intersexs))
-            putos_en_intersex = self.putos_ordenados.encuentra_interfalo(intersexs[0], intersexs[1], "y")
-            logger_cagada.debug("los putos enc {}".format(putos_en_intersex))
-            putos_intersextados += putos_en_intersex
+        putos_intersextados_x = self._determina_putos_celdas_tokados(True)
+        putos_intersextados_y = self._determina_putos_celdas_tokados(False)
+        celdas_tokadas |= set(self._determina_celdas_tokadas_por_caja())
+        logger_cagada.debug("las celdas tokadiscos son {}".format(celdas_tokadas))
+        
+        putos_intersextados.extend(putos_intersextados_x + putos_intersextados_y)
         
         for puto in putos_intersextados:
             formas = self.mapa_posicion_a_forma[puto]
@@ -635,6 +724,13 @@ class sektor_cir_culo():
                 logger_cagada.debug("de puto {} sale caca {}".format(puto, forma))
                 poligonos_tocados.add(forma)
             house_of_pain_pinta_figura(Point(puto), ROJO)
+        
+        for celda in list(celdas_tokadas):
+            if celda in self.mapa_celda_a_poligono:
+                forma = self.mapa_celda_a_poligono[celda]
+                poligonos_tocados.add(forma)
+                cuadro = house_of_pain_crea_poligono_de_celda(celda)
+                house_of_pain_pinta_figura(cuadro, NARANJA)
         
         for poli in poligonos_tocados:
             house_of_pain_pinta_figura(poli, AMARILLO)
@@ -814,6 +910,10 @@ def house_of_pain_crea_poligono_de_lineas(lineas):
     assert isinstance(poligono, Polygon)
     return Frozen(poligono)
 
+def house_of_pain_crea_poligono_de_celda(celda):
+    lineas_cerda = house_of_pain_genera_lineas_de_celda(celda)
+    policaca = house_of_pain_crea_poligono_de_lineas(lineas_cerda)
+    return policaca
     
 def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, celdas_ya_visitadas, putos_ordenados):
     pila = [celda_inicial]
@@ -823,35 +923,35 @@ def house_of_pain_genera_poligono_y_putos_de_celda_dfs(matrix, celda_inicial, ma
     celdas_ya_visitadas_int.add(celda_inicial)
     while pila:
         celda_actual = pila.pop()
-        logger_cagada.debug("celda act {}".format(celda_actual))
+#        logger_cagada.debug("celda act {}".format(celda_actual))
         lineas = house_of_pain_genera_lineas_de_celda(celda_actual)
         assert len(lineas) == 4
 #        logger_cagada.debug("las celdas ia visitadas {}".format(celdas_ya_visitadas_int))
         assert lineas[0] != lineas[1]
         assert lineas[0] < lineas[1]
         for linea in lineas:
-            logger_cagada.debug("linea act {}".format(linea))
+ #           logger_cagada.debug("linea act {}".format(linea))
 # XXX: https://stackoverflow.com/questions/20474549/extract-points-coordinates-from-python-shapely-polygon
             putos = list(linea.coords)
             assert len(putos) == 2
             
             if linea in lineas_poligono:
                 lineas_poligono.remove(linea)
-                logger_cagada.debug("linea removida")
+#                logger_cagada.debug("linea removida")
             else:
                 lineas_poligono.add(linea)
-                logger_cagada.debug("linea anadida")
+ #               logger_cagada.debug("linea anadida")
                 
-        logger_cagada.debug("las lineas aora son {}".format(sorted(list(lineas_poligono))))
+#        logger_cagada.debug("las lineas aora son {}".format(sorted(list(lineas_poligono))))
         
         for celda_aledana in map(lambda mov: (celda_actual[0] + mov[0], celda_actual[1] + mov[1]), house_of_pain_movimientos_matrix):
- #           logger_cagada.debug("proc celda ale {}".format(celda_aledana))
+#            logger_cagada.debug("proc celda ale {}".format(celda_aledana))
             if celda_aledana not in celdas_ya_visitadas_int and matrix[celda_aledana[0]][celda_aledana[1]] == '#':
- #               logger_cagada.debug("anadida")
+#                logger_cagada.debug("anadida")
                 pila.append(celda_aledana)
                 celdas_ya_visitadas_int.add(celda_aledana)
     
-    logger_cagada.debug("las lineas del pol {}".format(lineas_poligono))
+#    logger_cagada.debug("las lineas del pol {}".format(lineas_poligono))
     
     poligono = house_of_pain_crea_poligono_de_lineas(lineas_poligono)
     
@@ -926,7 +1026,7 @@ def house_of_pain_core(matrix, pos_inicio):
     ax = fig.add_subplot(121)
     house_of_pain_genera_poligonos_y_putos(matrix, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados)
     
-    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma)
+    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono)
     
     pyplot.show()
 
