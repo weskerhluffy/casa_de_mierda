@@ -70,7 +70,7 @@ class Frozen(object):
         else: raise Exception("Can't modify frozen object {0}".format(self._value))
     
     def __repr__(self):
-        return "i si acemos un acaca " + self._value.__str__()
+        return "i si acemos un acaca " + str(mapping(self._value))
 
 # XXX: https://stackoverflow.com/questions/3942303/how-does-a-python-set-check-if-two-objects-are-equal-what-methods-does-an-o
     def __hash__(self):
@@ -292,7 +292,7 @@ class SortedCollection(object):
     def encuentra_interfalo(self, llave_inicial, llave_final):
         k_ini = self._key(llave_inicial)
         k_fin = self._key(llave_final)
-        assert k_ini <= k_fin
+        assert k_ini <= k_fin, "inicial {} final {} ".format(k_ini, k_fin)
         i = bisect_left(self._keys, k_ini)
         logger_cagada.debug("todo el arreglo {}".format(self._keys))
         logger_cagada.debug("todo el arreglo {}".format(self._items))
@@ -375,7 +375,7 @@ def posicion_valida_dimension_igual(posiciones, para_dimension_x):
     return all(map(lambda posi:posi[idx_dimension] == referencia or abs(posi[idx_dimension] - referencia) < 1e-8, posiciones))
 
 def posicion_valida_colinearidad(posiciones):
-    logger_cagada.debug("validando pos {}".format(posiciones))
+#    logger_cagada.debug("validando pos {}".format(posiciones))
     return posicion_valida_dimension_igual(posiciones, True) or posicion_valida_dimension_igual(posiciones, False)
 
 # XXX: https://stackoverflow.com/questions/21291725/determine-if-shapely-point-is-within-a-linestring-multilinestring
@@ -484,6 +484,12 @@ def caca_comun_redondea_intervalo_a_enteros_topado(inter_1, inter_2, limite_1, l
     return inter_1_ent, inter_2_ent
     
 
+def puto_a_cadena(puto):
+    return str(mapping(puto))
+
+def puto_lista_a_cadena(putos):
+    return list(map(puto_a_cadena, putos))
+
 class sektor_cir_culo():
 
     angulos_extremos_verticales = [np.pi / 2, -np.pi / 2]
@@ -583,10 +589,13 @@ class sektor_cir_culo():
         es_ang_negativo_2 = angulo_2 < 0
         
         if es_ang_negativo_1 != es_ang_negativo_2:
-            dif_angulos = angulo_2 - angulo_1
+            dif_angulos = abs(angulo_2 - angulo_1)
+#            logger_cagada.debug("la dif de angs {} {} es {}".format(angulo_1, angulo_2, dif_angulos))
             if dif_angulos > np.pi:
                 angulo_1, angulo_2 = angulo_2, np.pi * 2 + angulo_1
+#                logger_cagada.debug("los ang norma {} {}".format(angulo_1, angulo_2))
                 self.normalizar_angulos = True
+                dif_angulos = abs(angulo_2 - angulo_1)
             assert dif_angulos < np.pi
         
         pos_polar_seg_1[0] = angulo_1
@@ -628,7 +637,7 @@ class sektor_cir_culo():
         assert posicion_valida_colinearidad(list(map(self.posicion_polar_a_posicion_de_sektor, pos_pol_extremas_en_sektor)) + posiciones_potenciales_extremas) or len(pos_pol_extremas_en_sektor) < 2, "los pos pol extre en sektor son {}".format(list(map(self.posicion_polar_a_posicion_de_sektor, pos_pol_extremas_en_sektor)))
         
         if len(pos_pol_extremas_en_sektor):
-            posiciones_potenciales_extremas.append(self.posicion_a_posicion_polar_de_sektor(pos_pol_extremas_en_sektor[0]))
+            posiciones_potenciales_extremas.append(self.posicion_polar_a_posicion_de_sektor(pos_pol_extremas_en_sektor[0]))
         
         limite_max = max(posiciones_potenciales_extremas, key=lambda posi:posi[idx_dimension])[idx_dimension]
         limite_min = min(posiciones_potenciales_extremas, key=lambda posi:posi[idx_dimension])[idx_dimension]
@@ -777,7 +786,7 @@ class sektor_cir_culo():
         return reduce(add, (map(lambda segmento:list(segmento.coords), self.segmentos_sektor)), [])
     
     def valida_colinearidad(self, putos):
-        logger_cagada.debug("colineadirdad d  {}".format(putos))
+#        logger_cagada.debug("colineadirdad d  {}".format(putos))
         return posicion_valida_colinearidad(list(map(lambda puto:(puto.x, puto.y), putos))) or any(map(lambda segmento:puto_valida_colinearidad(segmento, putos), self.segmentos_sektor))
     
     def calcula_interseccion_con_arco_sektor(self, segmento):
@@ -805,11 +814,11 @@ class sektor_cir_culo():
             assert self.puto_en_cuerda_sektor(intersex)
             puto_tangencial = True
         
-        logger_cagada.debug("los putos d intersex con el arco {}".format(putos_intersex))
+        logger_cagada.debug("los putos d intersex con el arco {}".format(puto_lista_a_cadena(putos_intersex)))
         
         assert not putos_intersex or self.valida_colinearidad(putos_intersex)
         
-        return putos_intersex, puto_tangencial
+        return list(sorted(putos_intersex)), puto_tangencial
     
     def calcula_interseccion_con_segmento_de_linea(self, segmento, con_segmento_sektor_1):
         if con_segmento_sektor_1:
@@ -837,7 +846,7 @@ class sektor_cir_culo():
         intersexs_arco, puto_tangencial = self.calcula_interseccion_con_arco_sektor(segmento)
         logger_cagada.debug("intersex con sektor 1 {}".format(intersex_seg_sektor_1))
         logger_cagada.debug("intersex con sektor 2 {}".format(intersex_seg_sektor_2))
-        logger_cagada.debug("intersex con arco {},{}".format(intersexs_arco, puto_tangencial))
+        logger_cagada.debug("intersex con arco {},{}".format(puto_lista_a_cadena(intersexs_arco), puto_tangencial))
         
         intersex_arco_cnt = len(intersexs_arco)
         if(intersex_arco_cnt == 2 or puto_tangencial):
@@ -860,7 +869,7 @@ class sektor_cir_culo():
         
         assert (puto_tangencial and len(putos_intersexion) == 1) or (not puto_tangencial and len(putos_intersexion) == 2)
         
-        return list(map(puto_a_posicion, putos_intersexion))
+        return list(sorted(map(puto_a_posicion, putos_intersexion)))
     
     def __repr__(self):
         return "centro {} segmentos sektor {} y {}".format(self.centro, self.segmento_sektor_1, self.segmento_sektor_2)
@@ -978,7 +987,7 @@ def house_of_pain_pinta_figura(figura, color=GRAY):
     global ax
     if isinstance(figura, Frozen):
         figura = figura._value
-    logger_cagada.debug("intentando pintar {}".format(figura))
+#    logger_cagada.debug("intentando pintar {}".format(figura))
     if isinstance(figura, Polygon):
         figura = rotate(figura, -90, origin=(0, 0))
         poly = mapping(figura)
@@ -1026,7 +1035,10 @@ def house_of_pain_core(matrix, pos_inicio):
     ax = fig.add_subplot(121)
     house_of_pain_genera_poligonos_y_putos(matrix, mapa_posicion_a_forma, mapa_linea_a_forma, mapa_celda_a_poligono, putos_ordenados)
     
-    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono)
+#    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (2, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono)
+#    sektor = sektor_cir_culo(pos_inicio, 8, (2, 3), (4, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono)
+#    sektor = sektor_cir_culo(pos_inicio, 8, (4, 2), (4, 3), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono)
+    sektor = sektor_cir_culo(pos_inicio, 8, (2, 2), (4, 2), lim_x, lim_y, putos_ordenados, mapa_posicion_a_forma, mapa_celda_a_poligono)
     
     pyplot.show()
 
