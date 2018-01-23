@@ -332,6 +332,29 @@ class conjunto_ordenado_en_dimensiones():
         logger_cagada.debug("de llave {} se consigio ladim {} i los res {}".format(idx_dimension, conjunto.key, valores))
         return valores
 
+class Poligono(Polygon):
+    def __init__(self, *args, **kwargs):
+        super(Poligono, self).__init__(*args, **kwargs)
+        self.posiciones_ordenadas_por_posicion_polar = []
+        self.posiciones = []
+        self.posicion_representativa = None
+        self._initializa()
+        
+    def _initializa(self):
+        self.posiciones = mapping(self)["coordinates"][0]
+        self.posicion_representativa = mapping(self.representative_point())["coordinates"]
+        logger_cagada.debug("posiciones {} puto repr {}".format(self.posiciones, self.posicion_representativa))
+        self._ordenar_posiciones_por_posicion_polar()
+        
+    def _ordenar_posiciones_por_posicion_polar(self):
+        pos_por_pos_polar = list(sorted(self.posiciones, key=partial(posicion_a_posicion_polar_normalizada, centro=self.posicion_representativa)))
+        self.posiciones_ordenadas_por_posicion_polar = pos_por_pos_polar
+    
+    def calcula_posiciones_extremas_desde_posicion(self, posi):
+        posiciones = list(sorted(self.posiciones, key=partial(posicion_a_posicion_polar_normalizada, centro=posi)))
+        return posiciones[0], posiciones[-1]
+        
+
 def posicion_suma(pos_1, pos_2):
     return [pos_1[0] + pos_2[0], pos_1[1] + pos_2[1]]
 
@@ -489,6 +512,14 @@ def puto_a_cadena(puto):
 
 def puto_lista_a_cadena(putos):
     return list(map(puto_a_cadena, putos))
+
+def posicion_polar_normaliza(pos_pol):
+    if pos_pol[0] < 0:
+        pos_pol[0] += np.pi * 2
+    return pos_pol
+
+def posicion_a_posicion_polar_normalizada(posi, centro):
+    return posicion_polar_normaliza(posicion_a_posicion_polar(centro, posi))
 
 class sektor_cir_culo():
 
@@ -915,8 +946,8 @@ def house_of_pain_crea_poligono_de_lineas(lineas):
             assert False, "no es linea ni multiplea {}".format(contorno)
     logger_cagada.debug("el contorno ext es {}, los int {}".format(contorno_externo, contornos_internos))
 # XXX: https://gis.stackexchange.com/questions/72306/does-shapely-within-function-identify-inner-holes
-    poligono = Polygon(contorno_externo, contornos_internos)
-    assert isinstance(poligono, Polygon)
+    poligono = Poligono(contorno_externo, contornos_internos)
+    assert isinstance(poligono, Poligono)
     return Frozen(poligono)
 
 def house_of_pain_crea_poligono_de_celda(celda):
@@ -988,10 +1019,10 @@ def house_of_pain_pinta_figura(figura, color=GRAY):
     if isinstance(figura, Frozen):
         figura = figura._value
 #    logger_cagada.debug("intentando pintar {}".format(figura))
-    if isinstance(figura, Polygon):
+    if isinstance(figura, Poligono):
         figura = rotate(figura, -90, origin=(0, 0))
         poly = mapping(figura)
-#    poly = {"type": "Polygon", "coordinates": mapping(figura)["coordinates"]}
+#    poly = {"type": "Poligono", "coordinates": mapping(figura)["coordinates"]}
         patch = PolygonPatch(poly, fc=color, ec=BLUE, alpha=0.5, zorder=2)
         ax.add_patch(patch)
     else:
