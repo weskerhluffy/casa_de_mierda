@@ -32,6 +32,7 @@ from asyncio.log import logger
 from numpy import degrees
 from shapely.affinity import rotate
 from itertools import chain
+from shapely.geometry.multipolygon import MultiPolygon
 
 nivel_log = logging.ERROR
 nivel_log = logging.DEBUG
@@ -342,6 +343,7 @@ class Poligono(Polygon):
         
     def _initializa(self):
         self.posiciones = mapping(self)["coordinates"][0]
+        logger_cagada.debug("puta mierda {}".format(self.posiciones))
         self.posicion_representativa = mapping(self.representative_point())["coordinates"]
         logger_cagada.debug("posiciones {} puto repr {}".format(self.posiciones, self.posicion_representativa))
         self._ordenar_posiciones_por_posicion_polar()
@@ -353,6 +355,26 @@ class Poligono(Polygon):
     def calcula_posiciones_extremas_desde_posicion(self, posi):
         posiciones = list(sorted(self.posiciones, key=partial(posicion_a_posicion_polar_normalizada, centro=posi)))
         return posiciones[0], posiciones[-1]
+    
+    # XXX: https://stackoverflow.com/questions/5628084/test-if-a-class-is-inherited-from-another
+    # XXX: https://stackoverflow.com/questions/21824157/how-to-extract-interior-polygon-coordinates-using-shapely
+    def extract_poly_coords(self):
+        if issubclass(type(self), Polygon):
+            exterior_coords = self.exterior.coords[:]
+            interior_coords = []
+            for interior in self.interiors:
+                interior_coords.append(interior.coords[:])
+        else:
+            if issubclass(type(self), MultiPolygon):
+                exterior_coords = []
+                interior_coords = []
+                for part in self:
+                    epc = self.extract_poly_coords(part)  # Recursive call
+                    exterior_coords += epc[0]
+                    interior_coords += epc[1]
+            else:
+                raise ValueError('Unhandled geometry type: ' + repr(self.type))
+        return [ exterior_coords, interior_coords]
         
 
 def posicion_suma(pos_1, pos_2):
@@ -364,12 +386,12 @@ def posicion_resta(pos_1, pos_2):
 
     
 def posicion_a_posicion_polar(centro, posi):
-    logger_cagada.debug("calculando pos pol de {}".format(posi))
+#    logger_cagada.debug("calculando pos pol de {}".format(posi))
     distancias = posicion_resta(posi, centro)
-    logger_cagada.debug("las distancias {}".format(distancias))
+#    logger_cagada.debug("las distancias {}".format(distancias))
     angulo = arctan2(distancias[0], distancias[1])
     radio = sqrt(pow(distancias[0], 2) + pow(distancias[1], 2))
-    logger_cagada.debug("pos pol es {}".format([degrees(angulo), radio]))
+#    logger_cagada.debug("pos pol es {}".format([degrees(angulo), radio]))
     return [angulo, radio]
 
 
@@ -1076,7 +1098,6 @@ def house_of_pain_core(matrix, pos_inicio):
 
 def caca_comun_lee_linea_como_num():
     return int(stdin.readline().strip())
-
 
 def caca_comun_lee_linea_como_monton_de_numeros():
     return list(map(int, stdin.readline().strip().split(" ")))
