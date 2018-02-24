@@ -336,22 +336,13 @@ class conjunto_ordenado_en_dimensiones():
 class Poligono(Polygon):
     def __init__(self, *args, **kwargs):
         super(Poligono, self).__init__(*args, **kwargs)
-        self.posiciones_ordenadas_por_posicion_polar = []
         self.posiciones = []
-        self.posicion_representativa = None
         self._initializa()
         
     def _initializa(self):
         self.posiciones = mapping(self)["coordinates"][0]
         logger_cagada.debug("puta mierda {}".format(self.posiciones))
-        self.posicion_representativa = mapping(self.representative_point())["coordinates"]
-        logger_cagada.debug("posiciones {} puto repr {}".format(self.posiciones, self.posicion_representativa))
-        self._ordenar_posiciones_por_posicion_polar()
         
-    def _ordenar_posiciones_por_posicion_polar(self):
-        pos_por_pos_polar = list(sorted(self.posiciones, key=partial(posicion_a_posicion_polar_normalizada, centro=self.posicion_representativa)))
-        self.posiciones_ordenadas_por_posicion_polar = pos_por_pos_polar
-    
     def calcula_posiciones_extremas_desde_posicion(self, posi):
         posiciones = list(sorted(self.posiciones, key=partial(posicion_a_posicion_polar_normalizada, centro=posi)))
         return posiciones[0], posiciones[-1]

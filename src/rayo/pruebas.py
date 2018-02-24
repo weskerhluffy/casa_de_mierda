@@ -78,3 +78,22 @@ def test_caca_chueca(mierda, caca_chueca):
     exte, inte = caca_chueca.extract_poly_coords()
 #    castring.logger_cagada.debug("las mierdas {}".format(exte))
     assert exte and not len(inte) and exte == putos_chuecos
+
+def test_caca_hueca_posiciones_extremas(mierda, caca_hueca):
+    exte, inte = caca_hueca.extract_poly_coords()
+    
+    posi = (10, 16)
+    
+    posis_ex = caca_hueca.calcula_posiciones_extremas_desde_posicion(posi)
+    
+    assert all(map(lambda posi:posi in exte, posis_ex)) and list(sorted(posis_ex)) == list(sorted([(0, 8), (4, 0)]))
+    
+def test_caca_hueca_posiciones_extremas_abajo(mierda, caca_hueca):
+    exte, inte = caca_hueca.extract_poly_coords()
+    
+    posi = (10, 4)
+    
+    posis_ex = caca_hueca.calcula_posiciones_extremas_desde_posicion(posi)
+    castring.logger_cagada.debug("las mierdas {}".format(posis_ex))
+    
+    assert all(map(lambda posi:posi in exte, posis_ex)) and list(sorted(posis_ex)) == list(sorted([(4, 0), (4, 8)]))
