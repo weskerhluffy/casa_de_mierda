@@ -340,12 +340,28 @@ class Poligono(Polygon):
         self._initializa()
         
     def _initializa(self):
-        self.posiciones = mapping(self)["coordinates"][0]
+        self.posiciones = (mapping(self)["coordinates"][0])
         logger_cagada.debug("puta mierda {}".format(self.posiciones))
         
     def calcula_posiciones_extremas_desde_posicion(self, posi):
         posiciones = list(sorted(self.posiciones, key=partial(posicion_a_posicion_polar_normalizada, centro=posi)))
         return posiciones[0], posiciones[-1]
+    
+    @classmethod
+    def posiciones_ordenadas(cls, posis):
+        menor = max(posis, key=lambda pos:(pos[0], -pos[1]))
+        pos_menor = posis.index(menor)
+        
+        logger_cagada.debug("menor {} y su idx {}".format(menor, pos_menor))
+        
+        anterior = posis[pos_menor - 1]
+        
+        logger_cagada.debug("el ante {}".format(anterior))
+        
+        if anterior > menor:
+            posis.reverse()
+        
+        return posis
     
     # XXX: https://stackoverflow.com/questions/5628084/test-if-a-class-is-inherited-from-another
     # XXX: https://stackoverflow.com/questions/21824157/how-to-extract-interior-polygon-coordinates-using-shapely
@@ -365,7 +381,7 @@ class Poligono(Polygon):
                     interior_coords += epc[1]
             else:
                 raise ValueError('Unhandled geometry type: ' + repr(self.type))
-        return [ exterior_coords, interior_coords]
+        return [ Poligono.posiciones_ordenadas(exterior_coords), interior_coords]
         
 
 def posicion_suma(pos_1, pos_2):

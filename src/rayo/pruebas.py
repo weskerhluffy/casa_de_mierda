@@ -65,6 +65,13 @@ def caca_chueca():
     putos_i = []
     caca = Poligono(putos_e, putos_i)
     return caca
+
+@pytest.fixture
+def caca_chueca_reves():
+    putos_e = list(reversed(putos_chuecos))
+    putos_i = []
+    caca = Poligono(putos_e, putos_i)
+    return caca
     
 
 def test_caca(mierda, caca):
@@ -97,3 +104,9 @@ def test_caca_hueca_posiciones_extremas_abajo(mierda, caca_hueca):
     castring.logger_cagada.debug("las mierdas {}".format(posis_ex))
     
     assert all(map(lambda posi:posi in exte, posis_ex)) and list(sorted(posis_ex)) == list(sorted([(4, 0), (4, 8)]))
+
+def test_caca_chueca_orden(mierda, caca_chueca, caca_chueca_reves):
+    exte, inte = caca_chueca.extract_poly_coords()
+    extei, intei = caca_chueca_reves.extract_poly_coords()
+#    castring.logger_cagada.debug("las mierdas {}".format(exte))
+    assert exte and not len(inte) and exte == putos_chuecos == extei
